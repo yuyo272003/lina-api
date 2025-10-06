@@ -32,14 +32,21 @@ class LoginController extends Controller
 
     /**
      * Cerrar sesion del usuario
-     * 
-     * @return \Illuminate\Http\RedirectResponse|\Illuminate\Routing\Redirector
+     * * @return \Illuminate\Http\Response
      */
-    public function logout() 
+    public function logout(Request $request) 
     {
-        Auth::logout();
+        // Cierra la sesión del guard 'web'
+        Auth::guard('web')->logout();
 
-        return redirect('login')->with('success', 'Sesión cerrada.');
+        // Invalida la sesión actual para que no pueda ser reutilizada
+        $request->session()->invalidate();
+
+        // Regenera el token CSRF como medida de seguridad
+        $request->session()->regenerateToken();
+
+        // Devuelve una respuesta HTTP 204 "No Content".
+        return response()->noContent();
     }
 
     /**
