@@ -186,12 +186,15 @@ class LoginController extends Controller
     {
         try {
         DB::beginTransaction();
+        $fullName = ($userGraphArray['givenName'] ?? '') . ' ' . ($userGraphArray['surname'] ?? '');
         
         // 1. Creamos el usuario principal
         $newUser = User::create([
-            'name'     => ($userGraphArray['givenName'] ?? '') . ' ' . ($userGraphArray['surname'] ?? ''),
-            'email'    => $userGraphArray['mail'],
-            'password' => \Illuminate\Support\Facades\Hash::make(uniqid())
+            'name'       => $fullName,
+            'first_name' => $userGraphArray['givenName'] ?? '',
+            'last_name'  => $userGraphArray['surname'] ?? '',
+            'email'      => $userGraphArray['mail'],
+            'password'   => \Illuminate\Support\Facades\Hash::make(uniqid())
         ]);
         $idUsuarioDB = $newUser->id;
 
