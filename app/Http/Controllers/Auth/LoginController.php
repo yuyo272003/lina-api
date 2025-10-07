@@ -3,6 +3,9 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Models\User;
+use App\Models\Campus;
+use App\Models\Facultad;
+use App\Models\ProgramaEducativo;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use Illuminate\Support\Facades\Auth;
@@ -106,13 +109,12 @@ class LoginController extends Controller
 
     /**
      * Una vez se hace el login en la pagina de Microsoft, se redirige a esta ruta
-     * 
-     * @param \Illuminate\Http\Request $request
+     * * @param \Illuminate\Http\Request $request
      * @return \Illuminate\Http\RedirectResponse|\Illuminate\Routing\Redirector
      */
     public function callback(Request $request)
     {
-        // Validar el 'state'
+        // Validar el 'state' para seguridad
         $expectedState = session('oauthState');
         $request->session()->forget('oauthState');
         $providedState = $request->query('state');
@@ -135,42 +137,57 @@ class LoginController extends Controller
             ]);
 
             try {
-            // 1. Obtenemos el token de acceso
-            $accessToken = $oauthClient->getAccessToken('authorization_code', [
-                'code' => $authCode
-            ]);
+                // 1. Obtenemos el token de acceso
+                $accessToken = $oauthClient->getAccessToken('authorization_code', [
+                    'code' => $authCode
+                ]);
+                $token = $accessToken->getToken();
 
-            // 2. Usamos el cliente HTTP más básico (Guzzle) para llamar a la API
-            $httpClient = new \GuzzleHttp\Client();
-            $response = $httpClient->get('https://graph.microsoft.com/v1.0/me', [
-                'headers' => [
-                    'Authorization' => 'Bearer ' . $accessToken->getToken()
-                ]
-            ]);
+                // 2. Usamos Guzzle para hacer las dos llamadas a la API de Graph
+                $httpClient = new \GuzzleHttp\Client();
 
-            // 3. Convertimos la respuesta JSON a un array
-            $userGraphArray = json_decode($response->getBody()->getContents(), true);
+                // Primera llamada al endpoint '/me' para obtener datos básicos
+                $responseMe = $httpClient->get('https://graph.microsoft.com/v1.0/me', [
+                    'headers' => ['Authorization' => 'Bearer ' . $token]
+                ]);
+                $userMe = json_decode($responseMe->getBody()->getContents(), true);
 
-            $user = User::where('email', $userGraphArray['mail'])->first();
+                // Segunda llamada al endpoint '/me/profile' para los detalles
+                $responseProfile = $httpClient->get('https://graph.microsoft.com/beta/me/profile', [
+                    'headers' => ['Authorization' => 'Bearer ' . $token]
+                ]);
+                $userProfile = json_decode($responseProfile->getBody()->getContents(), true);
 
-            if ($user === null) {
-                $user = $this->createUser($userGraphArray);
-            }
+                // 3. Combinamos toda la información en un solo array, priorizando los datos detallados
+                $userGraphArray = [
+                    'mail'               => $userMe['mail'] ?? null,
+                    'first_name'         => $userProfile['names'][0]['first'] ?? $userMe['givenName'] ?? null,
+                    'last_name'          => $userProfile['names'][0]['last'] ?? $userMe['surname'] ?? null,
+                    'matricula'          => $userProfile['positions'][0]['detail']['employeeId'] ?? null,
+                    'programa_educativo' => $userProfile['positions'][0]['detail']['company']['officeLocation'] ?? $userMe['officeLocation'] ?? null,
+                    'facultad'           => $userProfile['positions'][0]['detail']['company']['department'] ?? null,
+                    'campus'             => $userProfile['positions'][0]['detail']['company']['address']['street'] ?? null,
+                ];
 
-            if (!$user) {
-                return redirect('http://localhost:5173/login?error=User+not+found+in+local+DB');
-            }
+                $user = User::where('email', $userGraphArray['mail'])->first();
 
-            Auth::login($user);
+                if ($user === null) {
+                    $user = $this->createUser($userGraphArray);
+                }
 
-            // Redirigimos a la ruta CORRECTA de tu frontend
-            return redirect('http://localhost:5173/ConsultarTramites');
+                if (!$user) {
+                    return redirect('http://localhost:5173/login?error=User+creation+failed+in+DB');
+                }
+
+                Auth::login($user);
+                return redirect('http://localhost:5173/ConsultarTramites');
 
             } catch (\Exception $e) {
                 \Log::error('MS Graph Callback Error: ' . $e->getMessage() . ' en ' . $e->getFile() . ':' . $e->getLine());
-                return redirect('http://localhost:5173/login?error=Authentication+failed&errorDetail=' . urlencode('Error processing user data. Check logs.'));
+                return redirect('http://localhost:5173/login?error=Authentication+failed&errorDetail=' . urlencode('Error processing user data from Graph. Check logs.'));
             }
         }
+        
         $error = $request->query('error_description') ?? $request->query('error');
         return redirect('http://localhost:5173/login?error=' . urlencode($error));
     }
@@ -179,80 +196,67 @@ class LoginController extends Controller
      * Crear un nuevo usuario.
      * Según si es acádemico o estudiante.
      *
-     * @param  array  $user
-     * 
+     * @param  array  $userData
+     * @return \App\Models\User|null
      */
-    private function createUser($userGraphArray)
+    private function createUser($userData)
     {
         try {
-        DB::beginTransaction();
-        $fullName = ($userGraphArray['givenName'] ?? '') . ' ' . ($userGraphArray['surname'] ?? '');
-        
-        // 1. Creamos el usuario principal
-        $newUser = User::create([
-            'name'       => $fullName,
-            'first_name' => $userGraphArray['givenName'] ?? '',
-            'last_name'  => $userGraphArray['surname'] ?? '',
-            'email'      => $userGraphArray['mail'],
-            'password'   => \Illuminate\Support\Facades\Hash::make(uniqid())
-        ]);
-        $idUsuarioDB = $newUser->id;
+            DB::beginTransaction();
 
-        // 2. Insertamos los datos personales
-        DB::table('datos_personales')->insert([
-            'NombreDatosPersonales'          => capitalizeFirst($userGraphArray['givenName'] ?? ''),
-            'ApellidoPaternoDatosPersonales' => capitalizeFirst($userGraphArray['surname'] ?? ''),
-            'ApellidoMaternoDatosPersonales' => '',
-            'user_id'                        => $idUsuarioDB,
-            'CreatedBy'                      => 1,
-            'UpdatedBy'                      => 1
-        ]);
+            // --- LÓGICA DE BÚSQUEDA Y CREACIÓN EN CATÁLOGOS ---
+            $campus = \App\Models\Campus::firstOrCreate(
+                ['nombreCampus' => capitalizeFirst($userData['campus'] ?? 'Desconocido')]
+            );
 
-        // 3. Lógica para estudiantes/académicos
-        if (strpos($userGraphArray['mail'], '@estudiantes.uv.mx') !== false || strpos($userGraphArray['mail'], '@egresados.uv.mx') !== false) {
+            $facultad = \App\Models\Facultad::firstOrCreate(
+                ['nombreFacultad' => capitalizeFirst($userData['facultad'] ?? 'Desconocida')],
+                ['idCampus' => $campus->idCampus]
+            );
 
-            $emailParts = explode('@', $userGraphArray['mail']);
-            $localPart = $emailParts[0];
-            $matricula = ltrim($localPart, 'z');
+            $programaEducativo = \App\Models\ProgramaEducativo::firstOrCreate(
+                ['nombrePE' => capitalizeFirst($userData['programa_educativo'] ?? 'Desconocido')],
+                ['facultad_id' => $facultad->idFacultad]
+            );
 
-            $isEgresado = strpos($userGraphArray['mail'], '@egresados.uv.mx') !== false;
-
-            DB::table('role_usuario')->insert([
-                'user_id'   => $idUsuarioDB,
-                'role_id'   => $isEgresado ? 4 : 3,
-                'CreatedBy' => 1,
-                'UpdatedBy' => 1
+            // --- CREACIÓN DEL USUARIO Y SUS RELACIONES ---
+            $newUser = User::create([
+                'name'       => ($userData['first_name'] ?? '') . ' ' . ($userData['last_name'] ?? ''),
+                'first_name' => $userData['first_name'] ?? '',
+                'last_name'  => $userData['last_name'] ?? '',
+                'email'      => $userData['mail'],
+                'password'   => \Illuminate\Support\Facades\Hash::make(uniqid())
             ]);
+            
+            $idUsuarioDB = $newUser->id;
 
-            DB::table('estudiantes')->insert([
-                'matriculaEstudiante' => $matricula,
-                'user_id'             => $idUsuarioDB,
-                'CreatedBy'           => 1,
-                'UpdatedBy'           => 1
-            ]);
-        } else {
-            DB::table('academicos')->insert([
-                'NoPersonalAcademico' => $userGraphArray['employeeId'] ?? 'N/A',
-                'RfcAcademico'        => '',
-                'user_id'             => $idUsuarioDB,
-                'CreatedBy'           => 1,
-                'UpdatedBy'           => 1
-            ]);
+            if (strpos($userData['mail'], '@estudiantes.uv.mx') !== false || strpos($userData['mail'], '@egresados.uv.mx') !== false) {
+                $isEgresado = strpos($userData['mail'], '@egresados.uv.mx') !== false;
 
-            DB::table('role_usuario')->insert([
-                'user_id'   => $idUsuarioDB,
-                'role_id'   => 2,
-                'CreatedBy' => 1,
-                'UpdatedBy' => 1
-            ]);
-        }
+                DB::table('role_usuario')->insert(['user_id' => $idUsuarioDB, 'role_id' => $isEgresado ? 4 : 3]);
 
-        DB::commit();
-        return $newUser;
-    
+                DB::table('estudiantes')->insert([
+                    'user_id'             => $idUsuarioDB,
+                    'idPE'                => $programaEducativo->idPE,
+                    'matriculaEstudiante' => $userData['matricula'] ?? 'PENDIENTE',
+                    'grupoEstudiante'     => 'N/A', // Aún no tenemos este dato
+                ]);
+            } else { // Si es académico
+                DB::table('role_usuario')->insert(['user_id' => $idUsuarioDB, 'role_id' => 2]);
+                DB::table('academicos')->insert([
+                    'user_id'             => $idUsuarioDB,
+                    'idFacultad'          => $facultad->idFacultad,
+                    'NoPersonalAcademico' => $userData['matricula'] ?? 'N/A', // Asumimos que 'matricula' también es su ID
+                ]);
+            }
+            
+            DB::commit();
+            return $newUser;
+
         } catch (\Throwable $throwable) {
             DB::rollBack();
-            throw $throwable;
+            \Log::error('Create User DB Error: ' . $throwable->getMessage());
+            return null;
         }
     }
 
