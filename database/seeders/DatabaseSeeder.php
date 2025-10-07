@@ -6,16 +6,11 @@ use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // Le decimos al seeder principal que ejecute nuestro RoleSeeder
+        // El orden es importante: primero Campus, luego Facultades.
         $this->call([
             RoleSeeder::class,
         ]);
-
-        // Si en el futuro creas más seeders, los puedes añadir aquí.
     }
 }

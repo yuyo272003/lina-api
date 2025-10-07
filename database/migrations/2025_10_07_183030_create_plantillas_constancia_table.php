@@ -9,10 +9,12 @@ return new class extends Migration
     /**
      * Run the migrations.
      */
-    public function up(): void {
-        Schema::create('roles', function (Blueprint $table) {
-            $table->id('IdRole');
-            $table->string('NombreRole');
+    public function up(): void
+    {
+        Schema::create('plantillas_constancia', function (Blueprint $table) {
+            $table->id();
+            $table->string('nombre');
+            $table->string('path_plantilla');
             $table->timestamps();
         });
     }
@@ -22,6 +24,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('roles');
+        Schema::dropIfExists('plantillas_constancia');
     }
 };
