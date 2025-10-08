@@ -15,5 +15,7 @@ class DatabaseSeeder extends Seeder
             TramiteSeeder::class,
             RequisitoTramiteSeeder::class,
         ]);
+
+        // Si en el futuro creas más seeders, los puedes añadir aquí.
     }
 }
