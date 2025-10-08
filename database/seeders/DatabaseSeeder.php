@@ -12,5 +12,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             RoleSeeder::class,
         ]);
+
+        // Si en el futuro creas más seeders, los puedes añadir aquí.
     }
 }
