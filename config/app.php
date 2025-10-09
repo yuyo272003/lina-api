@@ -123,6 +123,4 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
-    'numero_cuenta_bancaria' => env('NUMERO_CUENTA_BANCARIA', 'No especificada'),
-
 ];
