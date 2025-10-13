@@ -50,7 +50,7 @@ class SolicitudController extends Controller
                 foreach ($tramiteData['respuestas'] as $nombreRequisito => $respuesta) {
                     // Busca el requisito por su nombre para obtener su ID
                     $requisito = Requisito::where('nombreRequisito', $nombreRequisito)->first();
-                    
+
                     if ($requisito && $respuesta) {
                         SolicitudRespuesta::create([
                             'solicitud_id' => $solicitud->idSolicitud,
@@ -76,4 +76,17 @@ class SolicitudController extends Controller
 
         return $pdf->download('orden-de-pago-' . $solicitud->folio . '.pdf');
     }
+
+    public function index(Request $request)
+    {
+        $user = Auth::user();
+
+        $solicitudes = Solicitud::where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->get(['idSolicitud', 'folio', 'estado', 'created_at']);
+
+        return response()->json($solicitudes);
+    }
+
+
 }
