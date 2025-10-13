@@ -38,13 +38,6 @@ class RequisitoSeeder extends Seeder
             ['idRequisito' => 26, 'nombreRequisito' => 'Indicación de si se desea excluir a un docente que impartió previamente la EE.', 'tipo' => 'dato'],
             ['idRequisito' => 27, 'nombreRequisito' => 'Correo electronico alterno', 'tipo' => 'dato'],
             ['idRequisito' => 28, 'nombreRequisito' => 'Número de contacto', 'tipo' => 'dato'],
-
-
-
-
-
-
-
         ]);
     }
 }
