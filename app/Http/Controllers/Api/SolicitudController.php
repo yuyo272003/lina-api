@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\DB;
 
 class SolicitudController extends Controller
 {
@@ -81,9 +82,41 @@ class SolicitudController extends Controller
     {
         $user = Auth::user();
 
+        // La consulta original era:
+        /*
         $solicitudes = Solicitud::where('user_id', $user->id)
             ->orderBy('created_at', 'desc')
             ->get(['idSolicitud', 'folio', 'estado', 'created_at']);
+        */
+
+        // --- NUEVA CONSULTA MEJORADA ---
+
+        $solicitudes = Solicitud::query()
+            // Especificamos la tabla principal para evitar ambigüedad en las columnas
+            ->where('solicitudes.user_id', $user->id)
+
+            // Unimos con la tabla pivote y luego con la de trámites
+            // Usamos leftJoin para no omitir solicitudes que pudieran no tener trámites
+            ->leftJoin('solicitud_tramite', 'solicitudes.idSolicitud', '=', 'solicitud_tramite.idSolicitud')
+            ->leftJoin('tramites', 'solicitud_tramite.idTramite', '=', 'tramites.idTramite')
+
+            // Seleccionamos las columnas originales de la solicitud y añadimos la nueva
+            ->select(
+                'solicitudes.idSolicitud',
+                'solicitudes.folio',
+                'solicitudes.estado',
+                'solicitudes.created_at',
+                // Usamos DB::raw para ejecutar GROUP_CONCAT y crear el nuevo campo
+                DB::raw("GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ') as tramites_nombres")
+            )
+
+            // Agrupamos por cada solicitud para que GROUP_CONCAT funcione correctamente
+            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at')
+
+            // Mantenemos el orden descendente por fecha de creación
+            ->orderBy('solicitudes.created_at', 'desc')
+            ->get();
+
 
         return response()->json($solicitudes);
     }
