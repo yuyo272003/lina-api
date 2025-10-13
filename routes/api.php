@@ -17,5 +17,3 @@ Route::middleware('auth:sanctum')->get('/perfil-estudiante', [EstudianteControll
 Route::middleware('auth:sanctum')->get('/tramites', [TramiteController::class, 'index']);
 
 Route::middleware('auth:sanctum')->post('/solicitudes', [SolicitudController::class, 'store']);
-
-Route::middleware('auth:sanctum')->get('/solicitudes', [SolicitudController::class, 'index']);
