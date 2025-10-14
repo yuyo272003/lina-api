@@ -10,7 +10,7 @@ class TramiteSeeder extends Seeder
         DB::table('tramites')->delete();
         DB::table('tramites')->insert([
             ['idTramite' => 1, 'nombreTramite' => 'Constancia de estudios', 'costoTramite' => 12.00],
-            ['idTramite' => 2, 'nombreTramite' => 'Constancia con avance acrediticio.', 'costoTramite' => 12.00],
+            ['idTramite' => 2, 'nombreTramite' => 'Constancia con avance acrediticio', 'costoTramite' => 12.00],
             ['idTramite' => 3, 'nombreTramite' => 'Boleta', 'costoTramite' => 12.00],
             ['idTramite' => 4, 'nombreTramite' => 'Carta de presentación de Servicio Social', 'costoTramite' => 12.00],
             ['idTramite' => 5, 'nombreTramite' => 'Carta de presentación para Practicas Profesionales', 'costoTramite' => 12.00],
