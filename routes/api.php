@@ -18,5 +18,6 @@ Route::middleware('auth:sanctum')->get('/tramites', [TramiteController::class, '
 
 Route::middleware('auth:sanctum')->post('/solicitudes', [SolicitudController::class, 'store']);
 
-
 Route::middleware('auth:sanctum')->get('/solicitudes', [SolicitudController::class, 'index']);
+
+Route::get('/solicitudes/{solicitud}', [SolicitudController::class, 'show']);

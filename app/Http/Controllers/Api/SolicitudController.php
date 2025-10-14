@@ -82,15 +82,6 @@ class SolicitudController extends Controller
     {
         $user = Auth::user();
 
-        // La consulta original era:
-        /*
-        $solicitudes = Solicitud::where('user_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->get(['idSolicitud', 'folio', 'estado', 'created_at']);
-        */
-
-        // --- NUEVA CONSULTA MEJORADA ---
-
         $solicitudes = Solicitud::query()
             // Especificamos la tabla principal para evitar ambigüedad en las columnas
             ->where('solicitudes.user_id', $user->id)
@@ -120,6 +111,36 @@ class SolicitudController extends Controller
 
         return response()->json($solicitudes);
     }
+    
+    /**
+     * Muestra los detalles de una solicitud específica.
+     *
+     * @param  \App\Models\Solicitud  $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function show(Solicitud $solicitud)
+    {
+        // 1. Verificación de autorización
+        if (Auth::id() !== $solicitud->user_id) {
+            return response()->json(['message' => 'No autorizado'], 403);
+        }
 
+        // 2. Cargar la relación de trámites de la solicitud
+        $solicitud->load('tramites');
 
+        // 3. Para cada trámite, cargar sus respuestas y el nombre del requisito asociado
+        foreach ($solicitud->tramites as $tramite) {
+            $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
+                ->where('tramite_id', $tramite->idTramite)
+                ->join('requisitos', 'solicitud_respuestas.requisito_id', '=', 'requisitos.idRequisito')
+                ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta')
+                ->get();
+            
+            // Añadimos las respuestas encontradas como un nuevo atributo al objeto trámite
+            $tramite->respuestas = $respuestas;
+        }
+
+        // 4. Devolver la solicitud con todos los datos anidados
+        return response()->json($solicitud);
+    }
 }
