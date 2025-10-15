@@ -76,22 +76,22 @@
 
   <table>
     <tr>
-      <th>Nombre del Estudiante</th>
-      <td>{{ $user->name }}</td>
+        <th>Nombre del Estudiante</th>
+        <td>{{ $user->name }}</td>
     </tr>
     <tr>
-      <th>Matrícula</th>
-      <td>{{ $user->estudiante->matriculaEstudiante ?? 'N/A' }}</td>
+        <th>Matrícula</th>
+        <td>{{ $user->estudiante?->matriculaEstudiante ?? 'N/A' }}</td>
     </tr>
     <tr>
-      <th>Programa Educativo</th>
-      <td>{{ $user->estudiante->programaEducativo->nombrePE ?? 'N/A' }}</td>
+        <th>Programa Educativo</th>
+        <td>{{ $user->estudiante?->programaEducativo?->nombrePE ?? 'N/A' }}</td>
     </tr>
     <tr>
-      <th>Fecha de Solicitud</th>
-      <td>{{ $solicitud->created_at->format('d/m/Y') }}</td>
+        <th>Fecha de Solicitud</th>
+        <td>{{ $solicitud->created_at->format('d/m/Y') }}</td>
     </tr>
-  </table>
+</table>
 
   <h4>Trámites Solicitados</h4>
   <table class="items">

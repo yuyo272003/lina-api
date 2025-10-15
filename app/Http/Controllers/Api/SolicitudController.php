@@ -65,7 +65,7 @@ class SolicitudController extends Controller
         }
 
 
-        // 4. GENERACIÓN DE PDF (sin cambios)
+        // GENERACIÓN DE PDF
         $data = [
             'solicitud' => $solicitud,
             'ordenPago' => $ordenPago,
@@ -74,8 +74,13 @@ class SolicitudController extends Controller
         ];
 
         $pdf = Pdf::loadView('pdf.orden_pago', $data);
+        $nombreArchivo = 'orden-de-pago-' . $solicitud->folio . '.pdf';
 
-        return $pdf->download('orden-de-pago-' . $solicitud->folio . '.pdf');
+        // DEVOLVER RESPUESTA CON ENCABEZADOS CORRECTOS
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',
+        ]);
     }
 
     public function index(Request $request)
@@ -142,5 +147,51 @@ class SolicitudController extends Controller
 
         // 4. Devolver la solicitud con todos los datos anidados
         return response()->json($solicitud);
+    }
+
+    /**
+     * Genera y descarga el PDF de la orden de pago para una solicitud existente.
+     *
+     * @param  \App\Models\Solicitud  $solicitud
+     * @return \Illuminate\Http\Response
+     */
+    public function downloadOrdenDePago(Solicitud $solicitud)
+    {
+        // 1. Verificación de autorización
+        if (Auth::id() !== $solicitud->user_id) {
+            return response()->json(['message' => 'No autorizado'], 403);
+        }
+
+        // 2. Cargar las relaciones de la solicitud
+        $solicitud->load('tramites', 'ordenesPago');
+
+        // 3. Obtener la primera orden de pago asociada
+        $ordenPago = $solicitud->ordenesPago->first();
+
+        if (!$ordenPago) {
+             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
+        }
+
+        // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE (CAMBIO CLAVE)
+        $user = Auth::user();
+        $user->load('estudiante.programaEducativo');
+
+        // 5. Preparar los datos para la vista del PDF
+        $data = [
+            'solicitud' => $solicitud,
+            'ordenPago' => $ordenPago,
+            'tramites'  => $solicitud->tramites,
+            'user'      => $user,
+        ];
+
+        // 6. Generar el PDF
+        $pdf = Pdf::loadView('pdf.orden_pago', $data);
+        $nombreArchivo = 'orden-de-pago-' . $solicitud->folio . '.pdf';
+
+        // 7. DEVOLVER RESPUESTA CON ENCABEZADOS CORRECTOS 
+        return response($pdf->output(), 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',
+        ]);
     }
 }
