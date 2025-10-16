@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Solicitud;
 use App\Models\Tramite;
-use App\Models\Requisito; // <-- ¡AÑADIR ESTE IMPORT!
-use App\Models\SolicitudRespuesta; // <-- ¡AÑADIR ESTE IMPORT!
+use App\Models\Requisito;
+use App\Models\SolicitudRespuesta; 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
@@ -193,5 +193,35 @@ class SolicitudController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',
         ]);
+    }
+
+    public function subirComprobante(Request $request, Solicitud $solicitud)
+    {
+        // Validación
+        $request->validate([
+            'comprobante' => 'required|file|mimes:pdf|max:10000', // Max 10MB
+        ]);
+
+        // Guardar el archivo
+        if ($request->hasFile('comprobante')) {
+            // Generar un nombre único para evitar colisiones
+            $nombreArchivo = 'comprobante_' . $solicitud->id . '_' . time() . '.' . $request->file('comprobante')->extension();
+            
+            // Guardar en 'storage/app/public/comprobantes'
+            $ruta = $request->file('comprobante')->storeAs('comprobantes', $nombreArchivo, 'public');
+
+            // Actualizar la base de datos
+            $solicitud->ruta_comprobante = $ruta;
+            $solicitud->estado = 'En revisión';
+            $solicitud->save();
+
+            // Devolver respuesta de éxito
+            return response()->json([
+                'message' => 'Comprobante subido con éxito.',
+                'solicitud' => $solicitud
+            ], 200);
+        }
+
+        return response()->json(['error' => 'No se encontró el archivo del comprobante.'], 400);
     }
 }

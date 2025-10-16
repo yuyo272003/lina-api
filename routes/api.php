@@ -23,4 +23,5 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/solicitudes', [SolicitudController::class, 'index']);
     Route::get('/solicitudes/{solicitud}', [SolicitudController::class, 'show']);
     Route::get('/solicitudes/{solicitud}/orden-de-pago', [SolicitudController::class, 'downloadOrdenDePago']);
+    Route::post('/solicitudes/{solicitud}/comprobante', [SolicitudController::class, 'subirComprobante']);
 });
