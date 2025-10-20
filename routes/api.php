@@ -10,18 +10,14 @@ Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::middleware('auth:sanctum')->group(function () {
-    Route::get('/user', function (Request $request) {
-        return $request->user();
-    });
+require __DIR__.'/auth.php';
 
-    Route::get('/perfil-estudiante', [EstudianteController::class, 'getProfile']);
-    Route::get('/tramites', [TramiteController::class, 'index']);
+Route::middleware('auth:sanctum')->get('/perfil-estudiante', [EstudianteController::class, 'getProfile']);
 
-    // Rutas de Solicitudes
-    Route::post('/solicitudes', [SolicitudController::class, 'store']);
-    Route::get('/solicitudes', [SolicitudController::class, 'index']);
-    Route::get('/solicitudes/{solicitud}', [SolicitudController::class, 'show']);
-    Route::get('/solicitudes/{solicitud}/orden-de-pago', [SolicitudController::class, 'downloadOrdenDePago']);
-    Route::post('/solicitudes/{solicitud}/comprobante', [SolicitudController::class, 'subirComprobante']);
-});
+Route::middleware('auth:sanctum')->get('/tramites', [TramiteController::class, 'index']);
+
+Route::middleware('auth:sanctum')->post('/solicitudes', [SolicitudController::class, 'store']);
+
+Route::middleware('auth:sanctum')->get('/solicitudes', [SolicitudController::class, 'index']);
+
+Route::get('/solicitudes/{solicitud}', [SolicitudController::class, 'show']);

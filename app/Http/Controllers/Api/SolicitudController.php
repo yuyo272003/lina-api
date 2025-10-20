@@ -5,8 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Solicitud;
 use App\Models\Tramite;
-use App\Models\Requisito;
-use App\Models\SolicitudRespuesta;
+use App\Models\Requisito; // <-- ¡AÑADIR ESTE IMPORT!
+use App\Models\SolicitudRespuesta; // <-- ¡AÑADIR ESTE IMPORT!
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
@@ -65,7 +65,7 @@ class SolicitudController extends Controller
         }
 
 
-        // GENERACIÓN DE PDF
+        // 4. GENERACIÓN DE PDF (sin cambios)
         $data = [
             'solicitud' => $solicitud,
             'ordenPago' => $ordenPago,
@@ -74,50 +74,44 @@ class SolicitudController extends Controller
         ];
 
         $pdf = Pdf::loadView('pdf.orden_pago', $data);
-        $nombreArchivo = 'orden-de-pago-' . $solicitud->folio . '.pdf';
 
-        // DEVOLVER RESPUESTA CON ENCABEZADOS CORRECTOS
-        return response($pdf->output(), 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',
-        ]);
+        return $pdf->download('orden-de-pago-' . $solicitud->folio . '.pdf');
     }
 
     public function index(Request $request)
     {
         $user = Auth::user();
 
-        // 🔹 Verificamos si el usuario tiene el rol 2 (coordinador)
-        $tieneRol2 = DB::table('role_usuario')
-            ->where('user_id', $user->id)
-            ->where('role_id', 2)
-            ->exists();
+        $solicitudes = Solicitud::query()
+            // Especificamos la tabla principal para evitar ambigüedad en las columnas
+            ->where('solicitudes.user_id', $user->id)
 
-        // 🔹 Construimos la query base
-        $solicitudesQuery = DB::table('solicitudes')
+            // Unimos con la tabla pivote y luego con la de trámites
+            // Usamos leftJoin para no omitir solicitudes que pudieran no tener trámites
             ->leftJoin('solicitud_tramite', 'solicitudes.idSolicitud', '=', 'solicitud_tramite.idSolicitud')
             ->leftJoin('tramites', 'solicitud_tramite.idTramite', '=', 'tramites.idTramite')
+
+            // Seleccionamos las columnas originales de la solicitud y añadimos la nueva
             ->select(
                 'solicitudes.idSolicitud',
                 'solicitudes.folio',
                 'solicitudes.estado',
                 'solicitudes.created_at',
+                // Usamos DB::raw para ejecutar GROUP_CONCAT y crear el nuevo campo
                 DB::raw("GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ') as tramites_nombres")
             )
+
+            // Agrupamos por cada solicitud para que GROUP_CONCAT funcione correctamente
             ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at')
-            ->orderBy('solicitudes.created_at', 'desc');
 
-        // 🔹 Si NO tiene el rol 2, filtramos por su user_id
-        if (!$tieneRol2) {
-            $solicitudesQuery->where('solicitudes.user_id', $user->id);
-        }
+            // Mantenemos el orden descendente por fecha de creación
+            ->orderBy('solicitudes.created_at', 'desc')
+            ->get();
 
-        // 🔹 Ejecutamos la consulta
-        $solicitudes = $solicitudesQuery->get();
 
         return response()->json($solicitudes);
     }
-
+    
     /**
      * Muestra los detalles de una solicitud específica.
      *
@@ -141,88 +135,12 @@ class SolicitudController extends Controller
                 ->join('requisitos', 'solicitud_respuestas.requisito_id', '=', 'requisitos.idRequisito')
                 ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta')
                 ->get();
-
+            
             // Añadimos las respuestas encontradas como un nuevo atributo al objeto trámite
             $tramite->respuestas = $respuestas;
         }
 
         // 4. Devolver la solicitud con todos los datos anidados
         return response()->json($solicitud);
-    }
-
-    /**
-     * Genera y descarga el PDF de la orden de pago para una solicitud existente.
-     *
-     * @param  \App\Models\Solicitud  $solicitud
-     * @return \Illuminate\Http\Response
-     */
-    public function downloadOrdenDePago(Solicitud $solicitud)
-    {
-        // 1. Verificación de autorización
-        if (Auth::id() !== $solicitud->user_id) {
-            return response()->json(['message' => 'No autorizado'], 403);
-        }
-
-        // 2. Cargar las relaciones de la solicitud
-        $solicitud->load('tramites', 'ordenesPago');
-
-        // 3. Obtener la primera orden de pago asociada
-        $ordenPago = $solicitud->ordenesPago->first();
-
-        if (!$ordenPago) {
-             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
-        }
-
-        // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE (CAMBIO CLAVE)
-        $user = Auth::user();
-        $user->load('estudiante.programaEducativo');
-
-        // 5. Preparar los datos para la vista del PDF
-        $data = [
-            'solicitud' => $solicitud,
-            'ordenPago' => $ordenPago,
-            'tramites'  => $solicitud->tramites,
-            'user'      => $user,
-        ];
-
-        // 6. Generar el PDF
-        $pdf = Pdf::loadView('pdf.orden_pago', $data);
-        $nombreArchivo = 'orden-de-pago-' . $solicitud->folio . '.pdf';
-
-        // 7. DEVOLVER RESPUESTA CON ENCABEZADOS CORRECTOS
-        return response($pdf->output(), 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',
-        ]);
-    }
-
-    public function subirComprobante(Request $request, Solicitud $solicitud)
-    {
-        // Validación
-        $request->validate([
-            'comprobante' => 'required|file|mimes:pdf|max:10000', // Max 10MB
-        ]);
-
-        // Guardar el archivo
-        if ($request->hasFile('comprobante')) {
-            // Generar un nombre único para evitar colisiones
-            $nombreArchivo = 'comprobante_' . $solicitud->id . '_' . time() . '.' . $request->file('comprobante')->extension();
-
-            // Guardar en 'storage/app/public/comprobantes'
-            $ruta = $request->file('comprobante')->storeAs('comprobantes', $nombreArchivo, 'public');
-
-            // Actualizar la base de datos
-            $solicitud->ruta_comprobante = $ruta;
-            $solicitud->estado = 'En revisión';
-            $solicitud->save();
-
-            // Devolver respuesta de éxito
-            return response()->json([
-                'message' => 'Comprobante subido con éxito.',
-                'solicitud' => $solicitud
-            ], 200);
-        }
-
-        return response()->json(['error' => 'No se encontró el archivo del comprobante.'], 400);
     }
 }
