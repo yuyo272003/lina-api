@@ -15,6 +15,26 @@ use Illuminate\Support\Facades\DB;
 
 class SolicitudController extends Controller
 {
+    /**
+     * Define los IDs de los roles administrativos/de coordinación que deben ver todas las solicitudes.
+     * Estos IDs se basan en el RoleSeeder actualizado
+     * @var array
+     */
+    private $rolesAdministrativos = [5, 6, 7, 8];
+
+    /**
+     * Verifica si el usuario autenticado tiene un rol administrativo o de coordinación.
+     * @param int $userId
+     * @return bool
+     */
+    private function tieneRolAdministrativo(int $userId): bool
+    {
+        return DB::table('role_usuario')
+            ->where('user_id', $userId)
+            ->whereIn('role_id', $this->rolesAdministrativos)
+            ->exists();
+    }
+
     public function store(Request $request)
     {
         // VALIDACIÓN
@@ -87,11 +107,9 @@ class SolicitudController extends Controller
     {
         $user = Auth::user();
 
-        // 🔹 Verificamos si el usuario tiene el rol 2 (coordinador)
-        $tieneRol2 = DB::table('role_usuario')
-            ->where('user_id', $user->id)
-            ->where('role_id', 2)
-            ->exists();
+        // 🔹 Verificamos si el usuario tiene un rol administrativo o de coordinación (IDs 2, 3, 4, 5)
+        // Esto permite que los nuevos roles vean todas las solicitudes.
+        $esAdminODirectivo = $this->tieneRolAdministrativo($user->id);
 
         // 🔹 Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
@@ -107,8 +125,8 @@ class SolicitudController extends Controller
             ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at')
             ->orderBy('solicitudes.created_at', 'desc');
 
-        // 🔹 Si NO tiene el rol 2, filtramos por su user_id
-        if (!$tieneRol2) {
+        // 🔹 Si NO tiene un rol administrativo/directivo, filtramos por su user_id
+        if (!$esAdminODirectivo) {
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
         }
 
@@ -121,13 +139,15 @@ class SolicitudController extends Controller
     /**
      * Muestra los detalles de una solicitud específica.
      *
-     * @param  \App\Models\Solicitud  $solicitud
+     * @param   \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function show(Solicitud $solicitud)
     {
-        // 1. Verificación de autorización
-        if (Auth::id() !== $solicitud->user_id) {
+        // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
+        $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
+
+        if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
@@ -153,13 +173,15 @@ class SolicitudController extends Controller
     /**
      * Genera y descarga el PDF de la orden de pago para una solicitud existente.
      *
-     * @param  \App\Models\Solicitud  $solicitud
+     * @param   \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\Response
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
     {
-        // 1. Verificación de autorización
-        if (Auth::id() !== $solicitud->user_id) {
+        // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
+        $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
+        
+        if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 

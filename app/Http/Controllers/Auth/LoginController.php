@@ -180,7 +180,7 @@ class LoginController extends Controller
                 }
 
                 Auth::login($user);
-                return redirect('http://localhost:5173/ConsultarTramites');
+                return redirect('http://localhost:5173/dashboard');
 
             } catch (\Exception $e) {
                 \Log::error('MS Graph Callback Error: ' . $e->getMessage() . ' en ' . $e->getFile() . ':' . $e->getLine());
