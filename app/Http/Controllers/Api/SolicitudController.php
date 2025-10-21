@@ -17,10 +17,11 @@ class SolicitudController extends Controller
 {
     /**
      * Define los IDs de los roles administrativos/de coordinación que deben ver todas las solicitudes.
-     * Estos IDs se basan en el RoleSeeder actualizado
+     * Se añade el ROL 6 aquí para que tenga los mismos permisos de visualización.
      * @var array
      */
-    private $rolesAdministrativos = [5, 6, 7, 8];
+    // 🚨 CAMBIO 1: Se añade el Rol 6
+    private $rolesAdministrativos = [5, 6, 7, 8]; 
 
     /**
      * Verifica si el usuario autenticado tiene un rol administrativo o de coordinación.
@@ -37,6 +38,7 @@ class SolicitudController extends Controller
 
     public function store(Request $request)
     {
+        // ... (código anterior sin cambios) ...
         // VALIDACIÓN
         $request->validate([
             'tramites' => 'required|array',
@@ -106,10 +108,17 @@ class SolicitudController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
+        
+        // Obtener el role_id del usuario.
+        $userRole = DB::table('role_usuario')
+            ->where('user_id', $user->id)
+            ->value('role_id'); 
 
-        // 🔹 Verificamos si el usuario tiene un rol administrativo o de coordinación (IDs 2, 3, 4, 5)
-        // Esto permite que los nuevos roles vean todas las solicitudes.
-        $esAdminODirectivo = $this->tieneRolAdministrativo($user->id);
+
+        // 🔹 Definimos los roles y estados permitidos
+        // 🚨 CAMBIO 2: Se incluye el Rol 6 en la visualización administrativa
+        $roles_admin_visualizacion = [5, 6, 7, 8]; 
+        $estados_visibles_admin = ['En revisión', 'Completada', 'Rechazada']; 
 
         // 🔹 Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
@@ -125,8 +134,22 @@ class SolicitudController extends Controller
             ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at')
             ->orderBy('solicitudes.created_at', 'desc');
 
-        // 🔹 Si NO tiene un rol administrativo/directivo, filtramos por su user_id
-        if (!$esAdminODirectivo) {
+        // 🔹 Lógica de Filtrado por Rol
+        if (in_array($userRole, $roles_admin_visualizacion)) {
+            // ROL 5, 6, 7, 8: Ven TODAS las solicitudes, pero SOLO si están en 'En revisión', 'Completada' o 'Rechazada'.
+            $estados_db = ['en revisión', 'completada', 'rechazada'];
+            
+            $solicitudesQuery->whereIn(DB::raw('LOWER(solicitudes.estado)'), $estados_db);
+
+        } elseif ($userRole == 3 || $userRole == 4) { 
+            // ROL 3 Y 4: Solo pueden ver sus propias solicitudes en CUALQUIER estado.
+            $solicitudesQuery->where('solicitudes.user_id', $user->id);
+
+        } elseif ($userRole == 1 || $userRole == 2) {
+            // ROL 1 y 2: No pueden ver NINGUNA. 
+            $solicitudesQuery->whereRaw('1 = 0'); 
+        } else {
+            // Rol por defecto o cualquier otro rol no especificado (se aplica la restricción por ID de usuario por si acaso)
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
         }
 
@@ -139,19 +162,21 @@ class SolicitudController extends Controller
     /**
      * Muestra los detalles de una solicitud específica.
      *
-     * @param   \App\Models\Solicitud  $solicitud
+     * @param 	\App\Models\Solicitud 	$solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function show(Solicitud $solicitud)
     {
         // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
-        $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
+        // El ROL 6 ya está incluido en $rolesAdministrativos, así que tiene acceso total.
+        $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id()); 
 
         if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
         // 2. Cargar la relación de trámites de la solicitud
+        // ... (código anterior sin cambios) ...
         $solicitud->load('tramites');
 
         // 3. Para cada trámite, cargar sus respuestas y el nombre del requisito asociado
