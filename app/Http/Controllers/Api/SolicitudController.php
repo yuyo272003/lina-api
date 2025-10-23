@@ -17,10 +17,8 @@ class SolicitudController extends Controller
 {
     /**
      * Define los IDs de los roles administrativos/de coordinación que deben ver todas las solicitudes.
-     * Se añade el ROL 6 aquí para que tenga los mismos permisos de visualización.
      * @var array
      */
-    // 🚨 CAMBIO 1: Se añade el Rol 6
     private $rolesAdministrativos = [5, 6, 7, 8]; 
 
     /**
@@ -38,7 +36,6 @@ class SolicitudController extends Controller
 
     public function store(Request $request)
     {
-        // ... (código anterior sin cambios) ...
         // VALIDACIÓN
         $request->validate([
             'tramites' => 'required|array',
@@ -114,11 +111,29 @@ class SolicitudController extends Controller
             ->where('user_id', $user->id)
             ->value('role_id'); 
 
+        // Fases 'En revisión'
+        // 'en revisión 1' -> En Revisión por Coordinación (Roles 5 y 6)
+        // 'en revisión 2' -> En Revisión por Contaduría (Rol 7)
+        // 'en revisión 3' -> En Revisión por Secretaría (Rol 8)
+        $estados_visibles = [];
+        
+        // Lógica de Visibilidad Escalonada para 'En revisión'
+        if ($userRole == 5 || $userRole == 6) { 
+            // Coordinadores (Rol 5 y 6) ven la FASE INICIAL de 'En revisión'
+            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3']; // Ven todas las fases de revisión
+        } elseif ($userRole == 7) { 
+            // Contador (Rol 7) ve a partir de la FASE 2
+            $estados_visibles = ['en revisión 2', 'en revisión 3']; // Ven su fase y las siguientes
+        } elseif ($userRole == 8) { 
+            // Secretario (Rol 8) ve a partir de la FASE 3
+            $estados_visibles = ['en revisión 3']; 
+        }
 
-        // 🔹 Definimos los roles y estados permitidos
-        // 🚨 CAMBIO 2: Se incluye el Rol 6 en la visualización administrativa
-        $roles_admin_visualizacion = [5, 6, 7, 8]; 
-        $estados_visibles_admin = ['En revisión', 'Completada', 'Rechazada']; 
+        // Se mantienen los estados finales visibles para todos los roles administrativos
+        if (in_array($userRole, [5, 6, 7, 8])) {
+            $estados_visibles[] = 'completada';
+            $estados_visibles[] = 'rechazada';
+        }
 
         // 🔹 Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
@@ -135,22 +150,17 @@ class SolicitudController extends Controller
             ->orderBy('solicitudes.created_at', 'desc');
 
         // 🔹 Lógica de Filtrado por Rol
-        if (in_array($userRole, $roles_admin_visualizacion)) {
-            // ROL 5, 6, 7, 8: Ven TODAS las solicitudes, pero SOLO si están en 'En revisión', 'Completada' o 'Rechazada'.
-            $estados_db = ['en revisión', 'completada', 'rechazada'];
-            
-            $solicitudesQuery->whereIn(DB::raw('LOWER(solicitudes.estado)'), $estados_db);
-
+        if (in_array($userRole, [5, 6, 7, 8])) {
+            if (!empty($estados_visibles)) {
+                $solicitudesQuery->whereIn(DB::raw('LOWER(solicitudes.estado)'), $estados_visibles);
+            } else {
+                $solicitudesQuery->whereRaw('1 = 0');
+            }
         } elseif ($userRole == 3 || $userRole == 4) { 
             // ROL 3 Y 4: Solo pueden ver sus propias solicitudes en CUALQUIER estado.
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
-
-        } elseif ($userRole == 1 || $userRole == 2) {
-            // ROL 1 y 2: No pueden ver NINGUNA. 
-            $solicitudesQuery->whereRaw('1 = 0'); 
         } else {
-            // Rol por defecto o cualquier otro rol no especificado (se aplica la restricción por ID de usuario por si acaso)
-            $solicitudesQuery->where('solicitudes.user_id', $user->id);
+            $solicitudesQuery->whereRaw('1 = 0'); 
         }
 
         // 🔹 Ejecutamos la consulta
@@ -253,19 +263,20 @@ class SolicitudController extends Controller
         // Guardar el archivo
         if ($request->hasFile('comprobante')) {
             // Generar un nombre único para evitar colisiones
-            $nombreArchivo = 'comprobante_' . $solicitud->id . '_' . time() . '.' . $request->file('comprobante')->extension();
+            $nombreArchivo = 'comprobante_' . $solicitud->idSolicitud . '_' . time() . '.' . $request->file('comprobante')->extension();
 
             // Guardar en 'storage/app/public/comprobantes'
             $ruta = $request->file('comprobante')->storeAs('comprobantes', $nombreArchivo, 'public');
 
             // Actualizar la base de datos
             $solicitud->ruta_comprobante = $ruta;
-            $solicitud->estado = 'En revisión';
+            // Asignar el estado a la FASE INICIAL DE REVISIÓN
+            $solicitud->estado = 'En revisión 1';
             $solicitud->save();
 
             // Devolver respuesta de éxito
             return response()->json([
-                'message' => 'Comprobante subido con éxito.',
+                'message' => 'Comprobante subido con éxito. Solicitud enviada a Coordinación para revisión inicial.',
                 'solicitud' => $solicitud
             ], 200);
         }
