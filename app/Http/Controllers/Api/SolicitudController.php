@@ -19,7 +19,7 @@ class SolicitudController extends Controller
      * Define los IDs de los roles administrativos/de coordinación que deben ver todas las solicitudes.
      * @var array
      */
-    private $rolesAdministrativos = [5, 6, 7, 8]; 
+    private $rolesAdministrativos = [5, 6, 7, 8];
 
     /**
      * Verifica si el usuario autenticado tiene un rol administrativo o de coordinación.
@@ -105,28 +105,28 @@ class SolicitudController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        
+
         // Obtener el role_id del usuario.
         $userRole = DB::table('role_usuario')
             ->where('user_id', $user->id)
-            ->value('role_id'); 
+            ->value('role_id');
 
         // Fases 'En revisión'
         // 'en revisión 1' -> En Revisión por Coordinación (Roles 5 y 6)
         // 'en revisión 2' -> En Revisión por Contaduría (Rol 7)
         // 'en revisión 3' -> En Revisión por Secretaría (Rol 8)
         $estados_visibles = [];
-        
+
         // Lógica de Visibilidad Escalonada para 'En revisión'
-        if ($userRole == 5 || $userRole == 6) { 
+        if ($userRole == 5 || $userRole == 6) {
             // Coordinadores (Rol 5 y 6) ven la FASE INICIAL de 'En revisión'
             $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3']; // Ven todas las fases de revisión
-        } elseif ($userRole == 7) { 
+        } elseif ($userRole == 7) {
             // Contador (Rol 7) ve a partir de la FASE 2
             $estados_visibles = ['en revisión 2', 'en revisión 3']; // Ven su fase y las siguientes
-        } elseif ($userRole == 8) { 
+        } elseif ($userRole == 8) {
             // Secretario (Rol 8) ve a partir de la FASE 3
-            $estados_visibles = ['en revisión 3']; 
+            $estados_visibles = ['en revisión 3'];
         }
 
         // Se mantienen los estados finales visibles para todos los roles administrativos
@@ -156,11 +156,11 @@ class SolicitudController extends Controller
             } else {
                 $solicitudesQuery->whereRaw('1 = 0');
             }
-        } elseif ($userRole == 3 || $userRole == 4) { 
+        } elseif ($userRole == 3 || $userRole == 4) {
             // ROL 3 Y 4: Solo pueden ver sus propias solicitudes en CUALQUIER estado.
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
         } else {
-            $solicitudesQuery->whereRaw('1 = 0'); 
+            $solicitudesQuery->whereRaw('1 = 0');
         }
 
         // 🔹 Ejecutamos la consulta
@@ -179,7 +179,7 @@ class SolicitudController extends Controller
     {
         // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         // El ROL 6 ya está incluido en $rolesAdministrativos, así que tiene acceso total.
-        $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id()); 
+        $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
 
         if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
@@ -215,7 +215,7 @@ class SolicitudController extends Controller
     {
         // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
-        
+
         if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
@@ -283,4 +283,23 @@ class SolicitudController extends Controller
 
         return response()->json(['error' => 'No se encontró el archivo del comprobante.'], 400);
     }
+    public function validar(Request $request, Solicitud $solicitud)
+    {
+        $solicitud = Solicitud::findOrFail($solicitud);
+        $accion = $request->input('accion');
+        $observaciones = $request->input('observaciones');
+
+        if ($accion === 'aprobar') {
+            $solicitud->estado = 'APROBADO_CONTADOR';
+        } else {
+            $solicitud->estado = 'RECHAZADO';
+            $solicitud->observaciones = $observaciones;
+        }
+
+        $solicitud->save();
+
+        return response()->json($solicitud->fresh());
+    }
+
+
 }
