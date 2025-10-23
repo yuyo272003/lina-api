@@ -36,7 +36,7 @@ class Solicitud extends Model
         // Le decimos explícitamente la clave foránea y la clave local
         return $this->hasMany(OrdenPago::class, 'idSolicitud', 'idSolicitud'); // <-- ¡CRUCIAL #2!
     }
-
+    
     /**
      * La relación de muchos a muchos con Tramite.
      */
@@ -46,5 +46,9 @@ class Solicitud extends Model
         return $this->belongsToMany(Tramite::class, 'solicitud_tramite', 'idSolicitud', 'idTramite');
     }
 
-    // Puedes añadir otras relaciones aquí
+    public function user()
+    {
+        // Asumiendo que 'user_id' es la clave foránea en la tabla 'solicitudes'
+        return $this->belongsTo(User::class, 'user_id', 'id');
+    }
 }

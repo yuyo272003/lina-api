@@ -283,9 +283,10 @@ class SolicitudController extends Controller
 
         return response()->json(['error' => 'No se encontró el archivo del comprobante.'], 400);
     }
-    public function validar(Request $request, Solicitud $solicitud)
+
+    public function validar(Request $request, $id)
     {
-        $solicitud = Solicitud::findOrFail($solicitud);
+        $solicitud = Solicitud::findOrFail($id);
         $accion = $request->input('accion');
         $observaciones = $request->input('observaciones');
 
@@ -300,6 +301,4 @@ class SolicitudController extends Controller
 
         return response()->json($solicitud->fresh());
     }
-
-
 }
