@@ -151,8 +151,25 @@ class SolicitudController extends Controller
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        // 2. Cargar la relación de trámites de la solicitud
-        $solicitud->load('tramites');
+        // 2. Cargar las relaciones principales: trámites, usuario, estudiante y su programa educativo.
+        $solicitud->load([
+            'tramites',
+            'user' => function ($query) {
+                // Carga el estudiante y su programa educativo anidado en la relación user
+                $query->select('id', 'name', 'first_name', 'last_name', 'email')
+                    ->with([
+                        'estudiante' => function ($queryEstudiante) {
+                            $queryEstudiante->select('idEstudiante', 'user_id', 'idPE', 'matriculaEstudiante', 'grupoEstudiante', 'semestreEstudiante')
+                                ->with([
+                                    'programaEducativo' => function ($queryPE) {
+                                        $queryPE->select('idPE', 'nombrePE');
+                                    }
+                                ]);
+                        }
+                    ]);
+            }
+        ]);
+
 
         // 3. Para cada trámite, cargar sus respuestas y el nombre del requisito asociado
         foreach ($solicitud->tramites as $tramite) {
@@ -169,6 +186,7 @@ class SolicitudController extends Controller
         // 4. Devolver la solicitud con todos los datos anidados
         return response()->json($solicitud);
     }
+
 
     /**
      * Genera y descarga el PDF de la orden de pago para una solicitud existente.
