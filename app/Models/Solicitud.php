@@ -46,5 +46,9 @@ class Solicitud extends Model
         return $this->belongsToMany(Tramite::class, 'solicitud_tramite', 'idSolicitud', 'idTramite');
     }
 
-    // Puedes añadir otras relaciones aquí
+    public function user()
+    {
+        // Asumiendo que 'user_id' es la clave foránea en la tabla 'solicitudes'
+        return $this->belongsTo(User::class, 'user_id', 'id');
+    }
 }
