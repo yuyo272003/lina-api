@@ -12,7 +12,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 class SolicitudController extends Controller
 {
@@ -108,34 +107,9 @@ class SolicitudController extends Controller
     {
         $user = Auth::user();
 
-        // Obtener el role_id del usuario.
-        $userRole = DB::table('role_usuario')
-            ->where('user_id', $user->id)
-            ->value('role_id');
-
-        // Fases 'En revisión'
-        // 'en revisión 1' -> En Revisión por Coordinación (Roles 5 y 6)
-        // 'en revisión 2' -> En Revisión por Contaduría (Rol 7)
-        // 'en revisión 3' -> En Revisión por Secretaría (Rol 8)
-        $estados_visibles = [];
-
-        // Lógica de Visibilidad Escalonada para 'En revisión'
-        if ($userRole == 5 || $userRole == 6) {
-            // Coordinadores (Rol 5 y 6) ven la FASE INICIAL de 'En revisión'
-            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3']; // Ven todas las fases de revisión
-        } elseif ($userRole == 7) {
-            // Contador (Rol 7) ve a partir de la FASE 2
-            $estados_visibles = ['en revisión 2', 'en revisión 3']; // Ven su fase y las siguientes
-        } elseif ($userRole == 8) {
-            // Secretario (Rol 8) ve a partir de la FASE 3
-            $estados_visibles = ['en revisión 3'];
-        }
-
-        // Se mantienen los estados finales visibles para todos los roles administrativos
-        if (in_array($userRole, [5, 6, 7, 8])) {
-            $estados_visibles[] = 'completada';
-            $estados_visibles[] = 'rechazada';
-        }
+        // 🔹 Verificamos si el usuario tiene un rol administrativo o de coordinación (IDs 2, 3, 4, 5)
+        // Esto permite que los nuevos roles vean todas las solicitudes.
+        $esAdminODirectivo = $this->tieneRolAdministrativo($user->id);
 
         // 🔹 Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
@@ -151,18 +125,9 @@ class SolicitudController extends Controller
             ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at')
             ->orderBy('solicitudes.created_at', 'desc');
 
-        // 🔹 Lógica de Filtrado por Rol
-        if (in_array($userRole, [5, 6, 7, 8])) {
-            if (!empty($estados_visibles)) {
-                $solicitudesQuery->whereIn(DB::raw('LOWER(solicitudes.estado)'), $estados_visibles);
-            } else {
-                $solicitudesQuery->whereRaw('1 = 0');
-            }
-        } elseif ($userRole == 3 || $userRole == 4) {
-            // ROL 3 Y 4: Solo pueden ver sus propias solicitudes en CUALQUIER estado.
+        // 🔹 Si NO tiene un rol administrativo/directivo, filtramos por su user_id
+        if (!$esAdminODirectivo) {
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
-        } else {
-            $solicitudesQuery->whereRaw('1 = 0');
         }
 
         // 🔹 Ejecutamos la consulta
@@ -177,31 +142,24 @@ class SolicitudController extends Controller
      * @param   \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
-
     public function show(Solicitud $solicitud)
     {
-        // 1️⃣ Verificación de autorización
+        // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
+
         if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        // 2️⃣ Cargar relaciones principales (trámites, usuario, estudiante y programa)
+        // 2. Cargar las relaciones principales: trámites, usuario, estudiante y su programa educativo.
         $solicitud->load([
             'tramites',
             'user' => function ($query) {
+                // Carga el estudiante y su programa educativo anidado en la relación user
                 $query->select('id', 'name', 'first_name', 'last_name', 'email')
                     ->with([
                         'estudiante' => function ($queryEstudiante) {
-                            $queryEstudiante
-                                ->select(
-                                    'idEstudiante',
-                                    'user_id',
-                                    'idPE',
-                                    'matriculaEstudiante',
-                                    'grupoEstudiante',
-                                    'semestreEstudiante'
-                                )
+                            $queryEstudiante->select('idEstudiante', 'user_id', 'idPE', 'matriculaEstudiante', 'grupoEstudiante', 'semestreEstudiante')
                                 ->with([
                                     'programaEducativo' => function ($queryPE) {
                                         $queryPE->select('idPE', 'nombrePE');
@@ -212,19 +170,19 @@ class SolicitudController extends Controller
             }
         ]);
 
-        // 3️⃣ Cargar las respuestas de los trámites
+
+        // 3. Para cada trámite, cargar sus respuestas y el nombre del requisito asociado
         foreach ($solicitud->tramites as $tramite) {
-            $respuestas = \App\Models\SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
+            $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
                 ->where('tramite_id', $tramite->idTramite)
                 ->join('requisitos', 'solicitud_respuestas.requisito_id', '=', 'requisitos.idRequisito')
                 ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta')
                 ->get();
 
+            // Añadimos las respuestas encontradas como un nuevo atributo al objeto trámite
             $tramite->respuestas = $respuestas;
         }
-
-
-// ✅ Buscar PDF del comprobante asociado
+        // ✅ Buscar PDF del comprobante asociado
         $archivos = Storage::disk('public')->files('comprobantes');
 
         $archivoEncontrado = collect($archivos)->first(function ($path) use ($solicitud) {
@@ -242,9 +200,10 @@ class SolicitudController extends Controller
             $solicitud->comprobante = null;
         }
 
+
+        // 4. Devolver la solicitud con todos los datos anidados
         return response()->json($solicitud);
     }
-
 
 
     /**
