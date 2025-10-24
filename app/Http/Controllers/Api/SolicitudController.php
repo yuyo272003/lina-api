@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class SolicitudController extends Controller
 {
@@ -144,18 +146,15 @@ class SolicitudController extends Controller
      */
     public function show(Solicitud $solicitud)
     {
-        // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
 
         if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        // 2. Cargar las relaciones principales: trámites, usuario, estudiante y su programa educativo.
         $solicitud->load([
             'tramites',
             'user' => function ($query) {
-                // Carga el estudiante y su programa educativo anidado en la relación user
                 $query->select('id', 'name', 'first_name', 'last_name', 'email')
                     ->with([
                         'estudiante' => function ($queryEstudiante) {
@@ -170,8 +169,6 @@ class SolicitudController extends Controller
             }
         ]);
 
-
-        // 3. Para cada trámite, cargar sus respuestas y el nombre del requisito asociado
         foreach ($solicitud->tramites as $tramite) {
             $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
                 ->where('tramite_id', $tramite->idTramite)
@@ -179,31 +176,28 @@ class SolicitudController extends Controller
                 ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta')
                 ->get();
 
-            // Añadimos las respuestas encontradas como un nuevo atributo al objeto trámite
             $tramite->respuestas = $respuestas;
         }
-        // ✅ Buscar PDF del comprobante asociado
+
+        // ✅ Buscar comprobante físico
         $archivos = Storage::disk('public')->files('comprobantes');
 
         $archivoEncontrado = collect($archivos)->first(function ($path) use ($solicitud) {
-            // Busca coincidencia con el ID de la solicitud
             return str_contains($path, "comprobante_{$solicitud->idSolicitud}_");
         });
 
         if ($archivoEncontrado) {
             $solicitud->comprobante = [
                 'nombreArchivo' => basename($archivoEncontrado),
-                // 👇 Usa Storage::url() — esto genera automáticamente /storage/...
                 'url' => Storage::url($archivoEncontrado),
             ];
         } else {
             $solicitud->comprobante = null;
         }
 
-
-        // 4. Devolver la solicitud con todos los datos anidados
         return response()->json($solicitud);
     }
+
 
 
     /**
@@ -283,4 +277,47 @@ class SolicitudController extends Controller
 
         return response()->json(['error' => 'No se encontró el archivo del comprobante.'], 400);
     }
+
+    /**
+     * Actualiza el estado de una solicitud.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Solicitud  $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
+
+    public function updateEstado(Request $request, Solicitud $solicitud)
+    {
+        // 1. Autorización: Solo usuarios con roles administrativos pueden cambiar el estado.
+        if (!$this->tieneRolAdministrativo(Auth::id())) {
+            return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
+        }
+
+        // 2. Validación de la solicitud
+        $request->validate([
+            'estado' => [
+                'required',
+                'string',
+                Rule::in(['rechazada', 'en revisión 2']), // 💡 Utiliza Rule::in para restringir los valores.
+            ],
+        ]);
+
+        // 3. Lógica de Transición de Estado Específica
+        // Evita que un coordinador cambie el estado si ya fue revisado o completado.
+        $estadoActual = strtolower($solicitud->estado);
+        $nuevoEstado = strtolower($request->estado);
+
+        // Si el estado actual NO es 'en revisión 1' Y el nuevo estado NO es 'rechazada', bloquea la acción.
+        // Se permite 'rechazada' desde 'en proceso' o 'en revisión 1'
+        if ($estadoActual !== 'en revisión 1' && $nuevoEstado !== 'rechazada') {
+            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409); // 409 Conflict
+        }
+
+        // 4. Actualizar el estado
+        $solicitud->estado = $nuevoEstado;
+        $solicitud->save();
+
+        return response()->json(['message' => 'Estado de la solicitud actualizado con éxito.', 'solicitud' => $solicitud], 200);
+    }
+
 }
