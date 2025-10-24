@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class SolicitudController extends Controller
 {
@@ -130,10 +131,13 @@ class SolicitudController extends Controller
             $estados_visibles = ['en revisión 3']; 
         }
 
-        // Se mantienen los estados finales visibles para todos los roles administrativos
-        if (in_array($userRole, [5, 6, 7, 8])) {
+        // Se mantienen los estados finales visibles para algunos roles administrativos
+        if (in_array($userRole, [5, 6])) { // Roles 5 y 6 (Coordinadores)
             $estados_visibles[] = 'completada';
-            $estados_visibles[] = 'rechazada';
+            $estados_visibles[] = 'rechazada'; // Pueden ver TODAS las rechazadas.
+        } elseif (in_array($userRole, [7, 8])) { // Contador (7) y Secretario (8)
+            $estados_visibles[] = 'completada';
+            // Contador y Secretario NO ven las 'rechazadas' según el requisito.
         }
 
         // 🔹 Construimos la query base
@@ -287,7 +291,7 @@ class SolicitudController extends Controller
 
             // Actualizar la base de datos
             $solicitud->ruta_comprobante = $ruta;
-            $solicitud->estado = 'En revisión';
+            $solicitud->estado = 'En revisión 1';
             $solicitud->save();
 
             // Devolver respuesta de éxito
@@ -298,5 +302,46 @@ class SolicitudController extends Controller
         }
 
         return response()->json(['error' => 'No se encontró el archivo del comprobante.'], 400);
+    }
+
+    /**
+     * Actualiza el estado de una solicitud.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Solicitud  $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateEstado(Request $request, Solicitud $solicitud)
+    {
+        // 1. Autorización: Solo usuarios con roles administrativos pueden cambiar el estado.
+        if (!$this->tieneRolAdministrativo(Auth::id())) {
+            return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
+        }
+
+        // 2. Validación de la solicitud
+        $request->validate([
+            'estado' => [
+                'required',
+                'string',
+                Rule::in(['rechazada', 'en revisión 2']), // 💡 Utiliza Rule::in para restringir los valores.
+            ],
+        ]);
+        
+        // 3. Lógica de Transición de Estado Específica
+        // Evita que un coordinador cambie el estado si ya fue revisado o completado.
+        $estadoActual = strtolower($solicitud->estado);
+        $nuevoEstado = strtolower($request->estado);
+
+        // Si el estado actual NO es 'en revisión 1' Y el nuevo estado NO es 'rechazada', bloquea la acción.
+        // Se permite 'rechazada' desde 'en proceso' o 'en revisión 1'
+        if ($estadoActual !== 'en revisión 1' && $nuevoEstado !== 'rechazada') {
+            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409); // 409 Conflict
+        }
+        
+        // 4. Actualizar el estado
+        $solicitud->estado = $nuevoEstado;
+        $solicitud->save();
+
+        return response()->json(['message' => 'Estado de la solicitud actualizado con éxito.', 'solicitud' => $solicitud], 200);
     }
 }
