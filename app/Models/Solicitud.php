@@ -36,7 +36,7 @@ class Solicitud extends Model
         // Le decimos explícitamente la clave foránea y la clave local
         return $this->hasMany(OrdenPago::class, 'idSolicitud', 'idSolicitud'); // <-- ¡CRUCIAL #2!
     }
-    
+
     /**
      * La relación de muchos a muchos con Tramite.
      */

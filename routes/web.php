@@ -30,6 +30,23 @@ Route::middleware('auth')->group(function() {
     Route::post('/logout-microsoft', [LoginController::class, 'logout'])->name('logout.microsoft');
 });
 
+Route::get('/storage/{path}', function ($path) {
+    $fullPath = storage_path('app/public/' . $path);
+
+    if (!file_exists($fullPath)) {
+        abort(404, 'Archivo no encontrado');
+    }
+
+    return response()->file($fullPath, [
+        'Content-Type' => mime_content_type($fullPath),
+        'X-Frame-Options' => 'ALLOWALL',
+    ]);
+})->where('path', '.*');
+
+
+Route::get('/{any}', function () {
+    return view('app');
+})->where('any', '.*');
 
 // --- RUTAS PARA AUTENTICACIÓN ESTÁNDAR (Email/Password) ---
 require __DIR__.'/auth.php';
