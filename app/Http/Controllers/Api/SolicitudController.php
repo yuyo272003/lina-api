@@ -216,7 +216,7 @@ class SolicitudController extends Controller
             $tramite->respuestas = $respuestas;
         }
 
-        // ✅ Buscar comprobante físico
+        // Buscar comprobante físico
         $archivos = Storage::disk('public')->files('comprobantes');
 
         $archivoEncontrado = collect($archivos)->first(function ($path) use ($solicitud) {
@@ -337,6 +337,13 @@ class SolicitudController extends Controller
                 'string',
                 Rule::in(['rechazada', 'en revisión 2']), // 💡 Utiliza Rule::in para restringir los valores.
             ],
+            // 💡 AÑADIR VALIDACIÓN CONDICIONAL PARA 'observaciones'
+            'observaciones' => [
+                Rule::requiredIf($request->input('estado') === 'rechazada'),
+                'nullable',
+                'string',
+                'max:500'
+            ]
         ]);
 
         // 3. Lógica de Transición de Estado Específica
@@ -352,11 +359,27 @@ class SolicitudController extends Controller
 
         // 4. Actualizar el estado
         $solicitud->estado = $nuevoEstado;
+
+        if ($nuevoEstado === 'rechazada') {
+            // Asegúrate de guardar el valor de observaciones, si existe, si no, se guarda como null
+            $solicitud->observaciones = $request->input('observaciones', null); 
+        } else {
+            // Limpiar observaciones si no se rechaza
+            $solicitud->observaciones = null;
+        }
+
         $solicitud->save();
 
         return response()->json(['message' => 'Estado de la solicitud actualizado con éxito.', 'solicitud' => $solicitud], 200);
     }
 
+    /**
+     * Actualiza el estado de una solicitud por parte del contador.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Solicitud  $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
     {
         // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
