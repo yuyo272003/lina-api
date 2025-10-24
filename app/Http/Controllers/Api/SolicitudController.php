@@ -108,10 +108,38 @@ class SolicitudController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
+        
+        // Obtener el role_id del usuario.
+        $userRole = DB::table('role_usuario')
+            ->where('user_id', $user->id)
+            ->value('role_id'); 
 
-        // 🔹 Verificamos si el usuario tiene un rol administrativo o de coordinación (IDs 2, 3, 4, 5)
-        // Esto permite que los nuevos roles vean todas las solicitudes.
-        $esAdminODirectivo = $this->tieneRolAdministrativo($user->id);
+        // Fases 'En revisión'
+        // 'en revisión 1' -> En Revisión por Coordinación (Roles 5 y 6)
+        // 'en revisión 2' -> En Revisión por Contaduría (Rol 7)
+        // 'en revisión 3' -> En Revisión por Secretaría (Rol 8)
+        $estados_visibles = [];
+        
+        // Lógica de Visibilidad Escalonada para 'En revisión'
+        if ($userRole == 5 || $userRole == 6) { 
+            // Coordinadores (Rol 5 y 6) ven la FASE INICIAL de 'En revisión'
+            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3']; // Ven todas las fases de revisión
+        } elseif ($userRole == 7) { 
+            // Contador (Rol 7) ve a partir de la FASE 2
+            $estados_visibles = ['en revisión 2', 'en revisión 3']; // Ven su fase y las siguientes
+        } elseif ($userRole == 8) { 
+            // Secretario (Rol 8) ve a partir de la FASE 3
+            $estados_visibles = ['en revisión 3']; 
+        }
+
+        // Se mantienen los estados finales visibles para algunos roles administrativos
+        if (in_array($userRole, [5, 6])) { // Roles 5 y 6 (Coordinadores)
+            $estados_visibles[] = 'completada';
+            $estados_visibles[] = 'rechazada'; // Pueden ver TODAS las rechazadas.
+        } elseif (in_array($userRole, [7, 8])) { // Contador (7) y Secretario (8)
+            $estados_visibles[] = 'completada';
+            // Contador y Secretario NO ven las 'rechazadas' según el requisito.
+        }
 
         // 🔹 Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
@@ -127,9 +155,18 @@ class SolicitudController extends Controller
             ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at')
             ->orderBy('solicitudes.created_at', 'desc');
 
-        // 🔹 Si NO tiene un rol administrativo/directivo, filtramos por su user_id
-        if (!$esAdminODirectivo) {
+        // 🔹 Lógica de Filtrado por Rol
+        if (in_array($userRole, [5, 6, 7, 8])) {
+            if (!empty($estados_visibles)) {
+                $solicitudesQuery->whereIn(DB::raw('LOWER(solicitudes.estado)'), $estados_visibles);
+            } else {
+                $solicitudesQuery->whereRaw('1 = 0');
+            }
+        } elseif ($userRole == 3 || $userRole == 4) { 
+            // ROL 3 Y 4: Solo pueden ver sus propias solicitudes en CUALQUIER estado.
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
+        } else {
+            $solicitudesQuery->whereRaw('1 = 0'); 
         }
 
         // 🔹 Ejecutamos la consulta
