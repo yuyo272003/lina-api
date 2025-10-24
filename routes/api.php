@@ -26,5 +26,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/solicitudes/{solicitud}/comprobante', [SolicitudController::class, 'subirComprobante']);
     Route::post('/solicitudes/{solicitud}/validar', [SolicitudController::class, 'validar']);
     Route::patch('/solicitudes/{solicitud}/estado', [SolicitudController::class, 'updateEstado']);
+    Route::patch('/solicitudes/{solicitud}/estado-contador', [SolicitudController::class, 'updateEstadoContador']);
+
 
 });

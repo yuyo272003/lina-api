@@ -320,4 +320,42 @@ class SolicitudController extends Controller
         return response()->json(['message' => 'Estado de la solicitud actualizado con éxito.', 'solicitud' => $solicitud], 200);
     }
 
+    public function updateEstadoContador(Request $request, Solicitud $solicitud)
+    {
+        // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
+        // (Si ya tienes un método para roles administrativos, puedes extenderlo)
+        if (!$this->tieneRolAdministrativo(Auth::id())) {
+            return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
+        }
+
+        // 2. Validación: solo permitir "en revisión 3" o "rechazada"
+        $request->validate([
+            'estado' => [
+                'required',
+                'string',
+                Rule::in(['rechazada', 'en revisión 3']),
+            ],
+        ]);
+
+        $estadoActual = strtolower($solicitud->estado);
+        $nuevoEstado = strtolower($request->estado);
+
+        // 3. Reglas de transición válidas para el contador
+        // Solo puede aceptar si está en revisión 2
+        if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
+            return response()->json([
+                'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
+            ], 409);
+        }
+
+        // 4. Actualizar el estado
+        $solicitud->estado = $nuevoEstado;
+        $solicitud->save();
+
+        return response()->json([
+            'message' => 'Estado de la solicitud actualizado con éxito.',
+            'solicitud' => $solicitud
+        ], 200);
+    }
+
 }
