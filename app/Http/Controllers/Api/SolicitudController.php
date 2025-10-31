@@ -217,16 +217,11 @@ class SolicitudController extends Controller
         }
 
         // Buscar comprobante físico
-        $archivos = Storage::disk('public')->files('comprobantes');
-
-        $archivoEncontrado = collect($archivos)->first(function ($path) use ($solicitud) {
-            return str_contains($path, "comprobante_{$solicitud->idSolicitud}_");
-        });
-
-        if ($archivoEncontrado) {
+        $rutaAlmacenada = $solicitud->ruta_comprobante;
+        if ($rutaAlmacenada && Storage::disk('public')->exists($rutaAlmacenada)) {
             $solicitud->comprobante = [
-                'nombreArchivo' => basename($archivoEncontrado),
-                'url' => Storage::url($archivoEncontrado),
+                'nombreArchivo' => basename($rutaAlmacenada),
+                'url' => asset('storage/' . $rutaAlmacenada), 
             ];
         } else {
             $solicitud->comprobante = null;
@@ -302,7 +297,7 @@ class SolicitudController extends Controller
 
             // Actualizar la base de datos
             $solicitud->ruta_comprobante = $ruta;
-            $solicitud->estado = 'En revisión';
+            $solicitud->estado = 'En revisión 1';
             $solicitud->save();
 
             // Devolver respuesta de éxito
@@ -335,9 +330,8 @@ class SolicitudController extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::in(['rechazada', 'en revisión 2']), // 💡 Utiliza Rule::in para restringir los valores.
+                Rule::in(['rechazada', 'en revisión 2']),
             ],
-            // 💡 AÑADIR VALIDACIÓN CONDICIONAL PARA 'observaciones'
             'observaciones' => [
                 Rule::requiredIf($request->input('estado') === 'rechazada'),
                 'nullable',
@@ -381,41 +375,54 @@ class SolicitudController extends Controller
      * @return \Illuminate\Http\JsonResponse
      */
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
-    {
-        // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
-        // (Si ya tienes un método para roles administrativos, puedes extenderlo)
-        if (!$this->tieneRolAdministrativo(Auth::id())) {
-            return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
-        }
-
-        // 2. Validación: solo permitir "en revisión 3" o "rechazada"
-        $request->validate([
-            'estado' => [
-                'required',
-                'string',
-                Rule::in(['rechazada', 'en revisión 3']),
-            ],
-        ]);
-
-        $estadoActual = strtolower($solicitud->estado);
-        $nuevoEstado = strtolower($request->estado);
-
-        // 3. Reglas de transición válidas para el contador
-        // Solo puede aceptar si está en revisión 2
-        if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
-            return response()->json([
-                'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
-            ], 409);
-        }
-
-        // 4. Actualizar el estado
-        $solicitud->estado = $nuevoEstado;
-        $solicitud->save();
-
-        return response()->json([
-            'message' => 'Estado de la solicitud actualizado con éxito.',
-            'solicitud' => $solicitud
-        ], 200);
+{
+    // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
+    if (!$this->tieneRolAdministrativo(Auth::id())) {
+        return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
     }
+
+    // 2. Validación: solo permitir "en revisión 3" o "rechazada"
+    $request->validate([
+        'estado' => [
+            'required',
+            'string',
+            Rule::in(['rechazada', 'en revisión 3']), // Estados válidos para el contador
+        ],
+        // Añadimos validación para observaciones si se rechaza
+        'observaciones' => [
+            Rule::requiredIf($request->input('estado') === 'rechazada'),
+            'nullable',
+            'string',
+            'max:500'
+        ]
+    ]);
+
+    $estadoActual = strtolower($solicitud->estado);
+    $nuevoEstado = strtolower($request->estado);
+
+    // 3. Reglas de transición válidas para el contador
+    // Solo puede aceptar si está en revisión 2
+    if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
+        return response()->json([
+            'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
+        ], 409);
+    }
+
+    // 4. Actualizar el estado y observaciones
+    $solicitud->estado = $nuevoEstado;
+
+    if ($nuevoEstado === 'rechazada') {
+        $solicitud->observaciones = $request->input('observaciones', null);
+    } else {
+        $solicitud->observaciones = null;
+    }
+
+    $solicitud->save();
+
+    return response()->json([
+        'message' => 'Estado de la solicitud actualizado con éxito.',
+        'solicitud' => $solicitud
+    ], 200);
+}
 
 }
