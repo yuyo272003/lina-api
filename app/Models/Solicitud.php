@@ -26,6 +26,9 @@ class Solicitud extends Model
         'user_id',
         'folio',
         'estado',
+        'ruta_comprobante',
+        'observaciones',
+        'rol_rechazo',
     ];
 
     /**
