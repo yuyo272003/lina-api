@@ -18,11 +18,21 @@ use Illuminate\Validation\Rule;
 class SolicitudController extends Controller
 {
     /**
-     * Define los IDs de los roles administrativos/de coordinación que deben ver todas las solicitudes.
-     * Estos IDs se basan en el RoleSeeder actualizado
+     * Define los IDs de los roles administrativos/de coordinación.
      * @var array
      */
     private $rolesAdministrativos = [5, 6, 7, 8];
+
+    /**
+     * Mapeo de IDs de rol a nombres legibles para el frontend.
+     * @var array
+     */
+    private $mapaRoles = [
+        5 => 'Coordinación', 
+        6 => 'Coordinación', 
+        7 => 'Contaduría',
+        8 => 'Secretaría'
+    ];
 
     /**
      * Verifica si el usuario autenticado tiene un rol administrativo o de coordinación.
@@ -36,9 +46,31 @@ class SolicitudController extends Controller
             ->whereIn('role_id', $this->rolesAdministrativos)
             ->exists();
     }
+    
+    /**
+     * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
+     * Solo devuelve el ID si el usuario tiene uno de los roles administrativos definidos.
+     *
+     * @return int|null
+     */
+    private function obtenerRolAccion(): ?int
+    {
+        // Se asume que el usuario tiene un solo rol relevante en esta tabla pivot
+        return DB::table('role_usuario')
+            ->where('user_id', Auth::id())
+            ->whereIn('role_id', $this->rolesAdministrativos)
+            ->value('role_id');
+    }
 
+    /**
+     * Almacena una nueva solicitud junto con la generación de la orden de pago en PDF.
+     *
+     * @param   \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
     public function store(Request $request)
     {
+        // ... (El método store no necesita cambios, ya que no maneja rechazos) ...
         // VALIDACIÓN
         $request->validate([
             'tramites' => 'required|array',
@@ -58,6 +90,7 @@ class SolicitudController extends Controller
             'user_id' => $user->id,
             'folio' => 'SOL-' . now()->format('Ymd') . '-' . Str::random(6),
             'estado' => 'en proceso',
+            // rol_rechazo se inicializa en NULL por defecto en la BD
         ]);
 
         $solicitud->tramites()->attach($tramite_ids);
@@ -86,7 +119,6 @@ class SolicitudController extends Controller
             }
         }
 
-
         // GENERACIÓN DE PDF
         $data = [
             'solicitud' => $solicitud,
@@ -105,6 +137,12 @@ class SolicitudController extends Controller
         ]);
     }
 
+    /**
+     * Muestra una lista de solicitudes basadas en el rol del usuario autenticado.
+     *
+     * @param   \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function index(Request $request)
     {
         $user = Auth::user();
@@ -115,33 +153,28 @@ class SolicitudController extends Controller
             ->value('role_id'); 
 
         // Fases 'En revisión'
-        // 'en revisión 1' -> En Revisión por Coordinación (Roles 5 y 6)
-        // 'en revisión 2' -> En Revisión por Contaduría (Rol 7)
-        // 'en revisión 3' -> En Revisión por Secretaría (Rol 8)
         $estados_visibles = [];
+        $roles_coordinacion = [5, 6]; // Roles que ven la fase inicial
+
         
         // Lógica de Visibilidad Escalonada para 'En revisión'
-        if ($userRole == 5 || $userRole == 6) { 
-            // Coordinadores (Rol 5 y 6) ven la FASE INICIAL de 'En revisión'
-            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3']; // Ven todas las fases de revisión
+        if (in_array($userRole, $roles_coordinacion)) { 
+            // Coordinadores (Rol 5 y 6) ven todas las fases de revisión
+            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3']; 
         } elseif ($userRole == 7) { 
             // Contador (Rol 7) ve a partir de la FASE 2
-            $estados_visibles = ['en revisión 2', 'en revisión 3']; // Ven su fase y las siguientes
+            $estados_visibles = ['en revisión 2', 'en revisión 3']; 
         } elseif ($userRole == 8) { 
             // Secretario (Rol 8) ve a partir de la FASE 3
             $estados_visibles = ['en revisión 3']; 
         }
 
         // Se mantienen los estados finales visibles para algunos roles administrativos
-        if (in_array($userRole, [5, 6])) { // Roles 5 y 6 (Coordinadores)
+        if (in_array($userRole, $this->rolesAdministrativos)) { // Todos los roles administrativos ven "completada"
             $estados_visibles[] = 'completada';
-            $estados_visibles[] = 'rechazada'; // Pueden ver TODAS las rechazadas.
-        } elseif (in_array($userRole, [7, 8])) { // Contador (7) y Secretario (8)
-            $estados_visibles[] = 'completada';
-            // Contador y Secretario NO ven las 'rechazadas' según el requisito.
         }
-
-        // 🔹 Construimos la query base
+        
+        // Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
             ->leftJoin('solicitud_tramite', 'solicitudes.idSolicitud', '=', 'solicitud_tramite.idSolicitud')
             ->leftJoin('tramites', 'solicitud_tramite.idTramite', '=', 'tramites.idTramite')
@@ -150,28 +183,45 @@ class SolicitudController extends Controller
                 'solicitudes.folio',
                 'solicitudes.estado',
                 'solicitudes.created_at',
+                'solicitudes.rol_rechazo', // Incluimos la columna rol_rechazo
                 DB::raw("GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ') as tramites_nombres")
             )
-            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at')
+            // Agregamos 'rol_rechazo' al GROUP BY
+            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at', 'solicitudes.rol_rechazo') 
             ->orderBy('solicitudes.created_at', 'desc');
 
-        // 🔹 Lógica de Filtrado por Rol
-        if (in_array($userRole, [5, 6, 7, 8])) {
-            if (!empty($estados_visibles)) {
-                $solicitudesQuery->whereIn(DB::raw('LOWER(solicitudes.estado)'), $estados_visibles);
-            } else {
-                $solicitudesQuery->whereRaw('1 = 0');
-            }
+        // Lógica de Filtrado por Rol
+        if (in_array($userRole, $this->rolesAdministrativos)) {
+            $solicitudesQuery->where(function ($query) use ($estados_visibles, $userRole, $roles_coordinacion) {
+                // Mostrar las solicitudes en estados de "revisión" o "completada" según su rol
+                if (!empty($estados_visibles)) {
+                    $query->whereIn(DB::raw('LOWER(solicitudes.estado)'), array_filter($estados_visibles, fn($e) => $e !== 'rechazada'));
+                }
+                
+                // Mostrar las solicitudes 'rechazadas' que fueron rechazadas por ESTE rol.
+                // Para Coordinadores (Roles 5 y 6)
+                if (in_array($userRole, $roles_coordinacion)) {
+                    $query->orWhere(function ($q) use ($roles_coordinacion) {
+                        $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
+                          ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
+                    });
+                } 
+                // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
+                elseif (in_array($userRole, [7, 8])) {
+                    $query->orWhere(function ($q) use ($userRole) {
+                        $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
+                          ->where('solicitudes.rol_rechazo', $userRole);
+                    });
+                }
+            });
+
         } elseif ($userRole == 3 || $userRole == 4) { 
-            // ROL 3 Y 4: Solo pueden ver sus propias solicitudes en CUALQUIER estado.
+            // ROL 3 Y 4 (Estudiantes): Solo pueden ver sus propias solicitudes en CUALQUIER estado.
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
         } else {
             $solicitudesQuery->whereRaw('1 = 0'); 
         }
-
-        // 🔹 Ejecutamos la consulta
         $solicitudes = $solicitudesQuery->get();
-
         return response()->json($solicitudes);
     }
 
@@ -217,25 +267,26 @@ class SolicitudController extends Controller
         }
 
         // Buscar comprobante físico
-        $archivos = Storage::disk('public')->files('comprobantes');
-
-        $archivoEncontrado = collect($archivos)->first(function ($path) use ($solicitud) {
-            return str_contains($path, "comprobante_{$solicitud->idSolicitud}_");
-        });
-
-        if ($archivoEncontrado) {
+        $rutaAlmacenada = $solicitud->ruta_comprobante;
+        if ($rutaAlmacenada && Storage::disk('public')->exists($rutaAlmacenada)) {
             $solicitud->comprobante = [
-                'nombreArchivo' => basename($archivoEncontrado),
-                'url' => Storage::url($archivoEncontrado),
+                'nombreArchivo' => basename($rutaAlmacenada),
+                'url' => asset('storage/' . $rutaAlmacenada), 
             ];
         } else {
             $solicitud->comprobante = null;
         }
 
+        // Exponer el rol que rechazó la solicitud para el estudiante
+        if (strtolower($solicitud->estado) === 'rechazada' && $solicitud->rol_rechazo) {
+            $rolId = (int) $solicitud->rol_rechazo;
+            $solicitud->rol_rechazo_nombre = $this->mapaRoles[$rolId] ?? 'Rol Desconocido';
+        } else {
+             $solicitud->rol_rechazo_nombre = null;
+        }
+
         return response()->json($solicitud);
     }
-
-
 
     /**
      * Genera y descarga el PDF de la orden de pago para una solicitud existente.
@@ -245,6 +296,7 @@ class SolicitudController extends Controller
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
     {
+        // ... (No necesita cambios) ...
         // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
 
@@ -259,7 +311,7 @@ class SolicitudController extends Controller
         $ordenPago = $solicitud->ordenesPago->first();
 
         if (!$ordenPago) {
-             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
+              return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
         }
 
         // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE (CAMBIO CLAVE)
@@ -285,12 +337,26 @@ class SolicitudController extends Controller
         ]);
     }
 
+    /**
+     * Permite al estudiante subir el comprobante de pago.
+     * Si la solicitud fue rechazada por Contaduría (Rol 7), la devuelve a 'en revisión 2'.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Solicitud  $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function subirComprobante(Request $request, Solicitud $solicitud)
     {
         // Validación
         $request->validate([
-            'comprobante' => 'required|file|mimes:pdf|max:10000', // Max 10MB
+            'comprobante' => 'required|file|mimes:pdf|max:10000',
         ]);
+
+        // Lógica para determinar si la solicitud fue rechazada por Contador (Rol 7)
+        $rechazadaPorContador = (
+            strtolower($solicitud->estado) === 'rechazada' && 
+            $solicitud->rol_rechazo == 7
+        );
 
         // Guardar el archivo
         if ($request->hasFile('comprobante')) {
@@ -302,7 +368,20 @@ class SolicitudController extends Controller
 
             // Actualizar la base de datos
             $solicitud->ruta_comprobante = $ruta;
-            $solicitud->estado = 'En revisión';
+            
+            // LÓGICA DE TRANSICIÓN DE ESTADO
+            if ($rechazadaPorContador) {
+                 // Si la rechazo el Contador, al re-subir vuelve a la fase de revisión 2
+                 $solicitud->estado = 'en revisión 2';
+            } else {
+                 // Si estaba en 'en proceso' o rechazada por el coordinador, pasa a 'en revisión 1'
+                 $solicitud->estado = 'en revisión 1';
+            }
+            
+            // Limpiar la información de rechazo anterior
+            $solicitud->rol_rechazo = null; 
+            $solicitud->observaciones = null;
+            
             $solicitud->save();
 
             // Devolver respuesta de éxito
@@ -316,13 +395,12 @@ class SolicitudController extends Controller
     }
 
     /**
-     * Actualiza el estado de una solicitud.
+     * Actualiza el estado de una solicitud (Coordinador).
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
-
     public function updateEstado(Request $request, Solicitud $solicitud)
     {
         // 1. Autorización: Solo usuarios con roles administrativos pueden cambiar el estado.
@@ -335,9 +413,8 @@ class SolicitudController extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::in(['rechazada', 'en revisión 2']), // 💡 Utiliza Rule::in para restringir los valores.
+                Rule::in(['rechazada', 'en revisión 2']),
             ],
-            // 💡 AÑADIR VALIDACIÓN CONDICIONAL PARA 'observaciones'
             'observaciones' => [
                 Rule::requiredIf($request->input('estado') === 'rechazada'),
                 'nullable',
@@ -347,25 +424,24 @@ class SolicitudController extends Controller
         ]);
 
         // 3. Lógica de Transición de Estado Específica
-        // Evita que un coordinador cambie el estado si ya fue revisado o completado.
         $estadoActual = strtolower($solicitud->estado);
         $nuevoEstado = strtolower($request->estado);
 
-        // Si el estado actual NO es 'en revisión 1' Y el nuevo estado NO es 'rechazada', bloquea la acción.
-        // Se permite 'rechazada' desde 'en proceso' o 'en revisión 1'
         if ($estadoActual !== 'en revisión 1' && $nuevoEstado !== 'rechazada') {
-            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409); // 409 Conflict
+            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409); 
         }
 
-        // 4. Actualizar el estado
+        // 4. Actualizar el estado y guardar el rol si se rechaza
         $solicitud->estado = $nuevoEstado;
 
         if ($nuevoEstado === 'rechazada') {
-            // Asegúrate de guardar el valor de observaciones, si existe, si no, se guarda como null
-            $solicitud->observaciones = $request->input('observaciones', null); 
+            $solicitud->observaciones = $request->input('observaciones', null);
+            // 💡 REGISTRO DEL ROL: Si es rechazada, guarda quién lo hizo.
+            $solicitud->rol_rechazo = $this->obtenerRolAccion();
         } else {
-            // Limpiar observaciones si no se rechaza
+            // Limpiar observaciones y rol_rechazo si se acepta/avanza
             $solicitud->observaciones = null;
+            $solicitud->rol_rechazo = null;
         }
 
         $solicitud->save();
@@ -383,7 +459,6 @@ class SolicitudController extends Controller
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
     {
         // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
-        // (Si ya tienes un método para roles administrativos, puedes extenderlo)
         if (!$this->tieneRolAdministrativo(Auth::id())) {
             return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
         }
@@ -393,23 +468,40 @@ class SolicitudController extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::in(['rechazada', 'en revisión 3']),
+                Rule::in(['rechazada', 'en revisión 3']), // Estados válidos para el contador
             ],
+            // Añadimos validación para observaciones si se rechaza
+            'observaciones' => [
+                Rule::requiredIf($request->input('estado') === 'rechazada'),
+                'nullable',
+                'string',
+                'max:500'
+            ]
         ]);
 
         $estadoActual = strtolower($solicitud->estado);
         $nuevoEstado = strtolower($request->estado);
 
         // 3. Reglas de transición válidas para el contador
-        // Solo puede aceptar si está en revisión 2
         if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
             return response()->json([
                 'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
             ], 409);
         }
 
-        // 4. Actualizar el estado
+        // 4. Actualizar el estado y guardar el rol si se rechaza
         $solicitud->estado = $nuevoEstado;
+
+        if ($nuevoEstado === 'rechazada') {
+            $solicitud->observaciones = $request->input('observaciones', null);
+            // 💡 REGISTRO DEL ROL: Si es rechazada, guarda quién lo hizo.
+            $solicitud->rol_rechazo = $this->obtenerRolAccion();
+        } else {
+            // Limpiar observaciones y rol_rechazo si se acepta/avanza
+            $solicitud->observaciones = null;
+            $solicitud->rol_rechazo = null;
+        }
+
         $solicitud->save();
 
         return response()->json([
