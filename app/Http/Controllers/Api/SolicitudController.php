@@ -510,4 +510,56 @@ class SolicitudController extends Controller
         ], 200);
     }
 
+/**
+     * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
+     *
+     * @param  \App\Models\Solicitud  $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function cancelar(Solicitud $solicitud)
+    {
+        // 1. Autorización: Solo el dueño de la solicitud puede cancelarla.
+        if (Auth::id() !== $solicitud->user_id) {
+            return response()->json(['message' => 'No autorizado para cancelar esta solicitud.'], 403);
+        }
+
+        $estadoActual = strtolower($solicitud->estado);
+
+        // 2. Validación: Solo se permite cancelar si el estado es 'en proceso' o 'rechazada'.
+        if ($estadoActual !== 'en proceso' && !Str::contains($estadoActual, 'rechazada')) {
+            return response()->json([
+                'message' => "La solicitud no se puede cancelar en el estado actual: '{$solicitud->estado}'."
+            ], 409); // 409 Conflict
+        }
+
+        // 3. Actualizar el estado a 'cancelada'
+        $solicitud->estado = 'cancelada';
+        $solicitud->observaciones = 'Cancelada por el usuario.';
+        $solicitud->save();
+
+        // 4. Devolver la solicitud actualizada
+        $solicitud->load([
+            'tramites',
+            'user' => function ($query) {
+                $query->select('id', 'name', 'first_name', 'last_name', 'email');
+            }
+        ]);
+
+        foreach ($solicitud->tramites as $tramite) {
+            $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
+                ->where('tramite_id', $tramite->idTramite)
+                ->join('requisitos', 'solicitud_respuestas.requisito_id', '=', 'requisitos.idRequisito')
+                ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta')
+                ->get();
+            $tramite->respuestas = $respuestas;
+        }
+
+        // Simula la carga de comprobante para el frontend
+        $solicitud->comprobante = null; 
+
+        return response()->json([
+            'message' => 'Solicitud cancelada con éxito.',
+            'solicitud' => $solicitud
+        ], 200);
+    }
 }
