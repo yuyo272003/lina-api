@@ -28,4 +28,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch('/solicitudes/{solicitud}/estado', [SolicitudController::class, 'updateEstado']);
     Route::patch('/solicitudes/{solicitud}/estado-contador', [SolicitudController::class, 'updateEstadoContador']);
     Route::patch('solicitudes/{solicitud}/cancelar', [SolicitudController::class, 'cancelar']);
+    Route::resource('gestion/tramites', App\Http\Controllers\Api\TramiteRequisitoController::class)
+        ->only(['index', 'store', 'update', 'destroy']);
+    Route::get('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'getRequisitos']);
+    Route::post('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'storeRequisito']); 
+    Route::post('solicitudes/{solicitud}/requisito/{idTramite}', [SolicitudController::class, 'subirRequisitoDocumento']);
 });
