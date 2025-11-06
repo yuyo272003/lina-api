@@ -102,6 +102,7 @@ class SolicitudController extends Controller
             'user_id' => $user->id,
             'folio' => 'SOL-' . now()->format('Ymd') . '-' . Str::random(6),
             'estado' => 'en proceso',
+            // rol_rechazo se inicializa en NULL por defecto en la BD
         ]);
 
         $solicitud->tramites()->attach($tramite_ids);
@@ -344,6 +345,7 @@ class SolicitudController extends Controller
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
     {
+        // ... (No necesita cambios) ...
         // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
 
@@ -358,7 +360,7 @@ class SolicitudController extends Controller
         $ordenPago = $solicitud->ordenesPago->first();
 
         if (!$ordenPago) {
-             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
+              return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
         }
 
         // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE
