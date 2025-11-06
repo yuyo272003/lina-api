@@ -18,7 +18,6 @@ use App\Models\Configuracion;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\SolicitudRechazadaMail;
 
-
 class SolicitudController extends Controller
 {
     /**
@@ -50,7 +49,7 @@ class SolicitudController extends Controller
             ->whereIn('role_id', $this->rolesAdministrativos)
             ->exists();
     }
-        
+    
     /**
      * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
      *
@@ -70,39 +69,6 @@ class SolicitudController extends Controller
      *
      * @param    \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
-     */
-    /**
-     * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
-     *
-     * @return int|null
-     */
-    private function obtenerRolAccion(): ?int
-    {
-        return DB::table('role_usuario')
-            ->where('user_id', Auth::id())
-            ->whereIn('role_id', $this->rolesAdministrativos)
-            ->value('role_id');
-    }
-
-    /**
-     * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
-     *
-     * @return int|null
-     */
-    private function obtenerRolAccion(): ?int
-    {
-        return DB::table('role_usuario')
-            ->where('user_id', Auth::id())
-            ->whereIn('role_id', $this->rolesAdministrativos)
-            ->value('role_id');
-    }
-
-    /**
-     * Almacena una nueva solicitud junto con la generación de la orden de pago en PDF.
-     * Maneja la subida de archivos (documentos) y datos (texto/número).
-     *
-     * @param    \Illuminate\Http\Request  $request
-     * @return \Illuminate\Contracts\Routing\ResponseFactory|\Illuminate\Http\Response
      */
     public function store(Request $request)
     {
@@ -146,7 +112,6 @@ class SolicitudController extends Controller
             'user_id' => $user->id,
             'folio' => 'SOL-' . now()->format('Ymd') . '-' . Str::random(6),
             'estado' => 'en proceso',
-            // rol_rechazo se inicializa en NULL por defecto en la BD
         ]);
 
         $solicitud->tramites()->attach($tramite_ids);
@@ -173,11 +138,6 @@ class SolicitudController extends Controller
                     if ($requisito->tipo === 'documento') {
                         // Buscar el archivo subido en la estructura
                         $archivo = $request->file("files.{$tramiteData['id']}.{$nombreRequisito}");
-
-                        if ($archivo) {
-                            // Validación del archivo
-                            if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
-                                continue;
                         
                         if ($archivo) {
                             // Validación del archivo
@@ -234,12 +194,11 @@ class SolicitudController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-
+        
         // Obtener el role_id del usuario.
         $userRole = DB::table('role_usuario')
             ->where('user_id', $user->id)
-            ->value('role_id');
-            ->value('role_id');       
+            ->value('role_id');    
 
         // Fases 'En revisión'
         $estados_visibles = [];
@@ -294,7 +253,7 @@ class SolicitudController extends Controller
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
                           ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
-                  }    
+                }    
                 // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
                 elseif (in_array($userRole, [7, 8])) {
                     $query->orWhere(function ($q) use ($userRole) {
@@ -395,7 +354,6 @@ class SolicitudController extends Controller
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
     {
-        // ... (No necesita cambios) ...
         // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
 
@@ -410,7 +368,7 @@ class SolicitudController extends Controller
         $ordenPago = $solicitud->ordenesPago->first();
 
         if (!$ordenPago) {
-              return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
+             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
         }
 
         // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE
@@ -556,7 +514,7 @@ class SolicitudController extends Controller
      */
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
     {
-        // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
+        // 1️⃣ Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
         if (!$this->tieneRolAdministrativo(Auth::id())) {
             return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
         }
@@ -566,9 +524,8 @@ class SolicitudController extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::in(['rechazada', 'en revisión 3']), // Estados válidos para el contador
+                Rule::in(['rechazada', 'en revisión 3']),
             ],
-            // Añadimos validación para observaciones si se rechaza
             'observaciones' => [
                 Rule::requiredIf($request->input('estado') === 'rechazada'),
                 'nullable',
@@ -580,22 +537,20 @@ class SolicitudController extends Controller
         $estadoActual = strtolower($solicitud->estado);
         $nuevoEstado = strtolower($request->estado);
 
-        // 3. Reglas de transición válidas para el contador
+        // 3️⃣ Reglas de transición válidas para el contador
         if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
             return response()->json([
                 'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
             ], 409);
         }
 
-        // 4. Actualizar el estado y guardar el rol si se rechaza
+        // 4️⃣ Actualizar el estado y guardar el rol si se rechaza
         $solicitud->estado = $nuevoEstado;
 
         if ($nuevoEstado === 'rechazada') {
             $solicitud->observaciones = $request->input('observaciones', null);
-            // 💡 REGISTRO DEL ROL: Si es rechazada, guarda quién lo hizo.
             $solicitud->rol_rechazo = $this->obtenerRolAccion();
         } else {
-            // Limpiar observaciones y rol_rechazo si se acepta/avanza
             $solicitud->observaciones = null;
             $solicitud->rol_rechazo = null;
         }
@@ -629,57 +584,6 @@ class SolicitudController extends Controller
         ], 200);
     }
 
-/**
-     * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
-     *
-     * @param  \App\Models\Solicitud  $solicitud
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function cancelar(Solicitud $solicitud)
-    {
-        //Solo el dueño de la solicitud puede cancelarla.
-        if (Auth::id() !== $solicitud->user_id) {
-            return response()->json(['message' => 'No autorizado para cancelar esta solicitud.'], 403);
-        }
-
-        $estadoActual = strtolower($solicitud->estado);
-
-        // Solo se permite cancelar si el estado es 'en proceso' o 'rechazada'.
-        if ($estadoActual !== 'en proceso' && !Str::contains($estadoActual, 'rechazada')) {
-            return response()->json([
-                'message' => "La solicitud no se puede cancelar en el estado actual: '{$solicitud->estado}'."
-            ], 409); // 409 Conflict
-        }
-
-        // Actualizar el estado a 'cancelada'
-        $solicitud->estado = 'cancelada';
-        $solicitud->observaciones = 'Cancelada por el usuario.';
-        $solicitud->save();
-
-        // Devolver la solicitud actualizada
-        $solicitud->load([
-            'tramites',
-            'user' => function ($query) {
-                $query->select('id', 'name', 'first_name', 'last_name', 'email');
-            }
-        ]);
-
-        foreach ($solicitud->tramites as $tramite) {
-            $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
-                ->where('tramite_id', $tramite->idTramite)
-                ->join('requisitos', 'solicitud_respuestas.requisito_id', '=', 'requisitos.idRequisito')
-                ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta')
-                ->get();
-            $tramite->respuestas = $respuestas;
-        }
-        
-        $solicitud->comprobante = null;    
-
-        return response()->json([
-            'message' => 'Solicitud cancelada con éxito.',
-            'solicitud' => $solicitud
-        ], 200);
-    }
     /**
         * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
         *
