@@ -507,19 +507,18 @@ class SolicitudController extends Controller
      */
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
     {
-        // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
+        // 1️⃣ Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
         if (!$this->tieneRolAdministrativo(Auth::id())) {
             return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
         }
 
-        // 2. Validación: solo permitir "en revisión 3" o "rechazada"
+        // 2️⃣ Validación: solo permitir "en revisión 3" o "rechazada"
         $request->validate([
             'estado' => [
                 'required',
                 'string',
-                Rule::in(['rechazada', 'en revisión 3']), // Estados válidos para el contador
+                Rule::in(['rechazada', 'en revisión 3']),
             ],
-            // Añadimos validación para observaciones si se rechaza
             'observaciones' => [
                 Rule::requiredIf($request->input('estado') === 'rechazada'),
                 'nullable',
@@ -531,22 +530,20 @@ class SolicitudController extends Controller
         $estadoActual = strtolower($solicitud->estado);
         $nuevoEstado = strtolower($request->estado);
 
-        // 3. Reglas de transición válidas para el contador
+        // 3️⃣ Reglas de transición válidas para el contador
         if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
             return response()->json([
                 'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
             ], 409);
         }
 
-        // 4. Actualizar el estado y guardar el rol si se rechaza
+        // 4️⃣ Actualizar el estado y guardar el rol si se rechaza
         $solicitud->estado = $nuevoEstado;
 
         if ($nuevoEstado === 'rechazada') {
             $solicitud->observaciones = $request->input('observaciones', null);
-            // 💡 REGISTRO DEL ROL: Si es rechazada, guarda quién lo hizo.
             $solicitud->rol_rechazo = $this->obtenerRolAccion();
         } else {
-            // Limpiar observaciones y rol_rechazo si se acepta/avanza
             $solicitud->observaciones = null;
             $solicitud->rol_rechazo = null;
         }
@@ -573,6 +570,7 @@ class SolicitudController extends Controller
             }
         }
 
+        // 6️⃣ Respuesta final
         return response()->json([
             'message' => 'Estado de la solicitud actualizado con éxito.',
             'solicitud' => $solicitud
