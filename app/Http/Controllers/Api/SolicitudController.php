@@ -14,6 +14,9 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\SolicitudRechazadaMail;
+
 
 class SolicitudController extends Controller
 {
@@ -61,11 +64,24 @@ class SolicitudController extends Controller
     }
 
     /**
+     * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
+     *
+     * @return int|null
+     */
+    private function obtenerRolAccion(): ?int
+    {
+        return DB::table('role_usuario')
+            ->where('user_id', Auth::id())
+            ->whereIn('role_id', $this->rolesAdministrativos)
+            ->value('role_id');
+    }
+
+    /**
      * Almacena una nueva solicitud junto con la generación de la orden de pago en PDF.
      * Maneja la subida de archivos (documentos) y datos (texto/número).
      *
      * @param    \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
+     * @return \Illuminate\Contracts\Routing\ResponseFactory|\Illuminate\Http\Response
      */
     public function store(Request $request)
     {
@@ -129,6 +145,11 @@ class SolicitudController extends Controller
                     if ($requisito->tipo === 'documento') {
                         // Buscar el archivo subido en la estructura
                         $archivo = $request->file("files.{$tramiteData['id']}.{$nombreRequisito}");
+
+                        if ($archivo) {
+                            // Validación del archivo
+                            if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
+                                continue;
                         
                         if ($archivo) {
                             // Validación del archivo
@@ -185,10 +206,11 @@ class SolicitudController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        
+
         // Obtener el role_id del usuario.
         $userRole = DB::table('role_usuario')
             ->where('user_id', $user->id)
+            ->value('role_id');
             ->value('role_id');    
 
         // Fases 'En revisión'
@@ -244,7 +266,7 @@ class SolicitudController extends Controller
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
                           ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
-                }    
+                  }    
                 // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
                 elseif (in_array($userRole, [7, 8])) {
                     $query->orWhere(function ($q) use ($userRole) {
@@ -511,7 +533,7 @@ class SolicitudController extends Controller
             return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
         }
 
-        // 2. Validación: solo permitir "en revisión 3" o "rechazada"
+        // 2️⃣ Validación: solo permitir "en revisión 3" o "rechazada"
         $request->validate([
             'estado' => [
                 'required',
@@ -552,6 +574,27 @@ class SolicitudController extends Controller
 
         $solicitud->save();
 
+        // 5️⃣ Si la solicitud fue rechazada, enviar correo al alumno
+        if ($nuevoEstado === 'rechazada') {
+            try {
+                $contador = Auth::user(); // Usuario que rechazó
+                $estudiante = $solicitud->user; // Alumno dueño de la solicitud
+
+                if ($estudiante && $estudiante->email) {
+                    Mail::to($estudiante->email)->send(
+                        new SolicitudRechazadaMail(
+                            $solicitud,
+                            $contador,
+                            $request->input('observaciones', 'Sin motivo especificado.')
+                        )
+                    );
+                }
+            } catch (\Exception $e) {
+                \Log::error("❌ Error al enviar correo de rechazo: " . $e->getMessage());
+            }
+        }
+
+        // 6️⃣ Respuesta final
         return response()->json([
             'message' => 'Estado de la solicitud actualizado con éxito.',
             'solicitud' => $solicitud
