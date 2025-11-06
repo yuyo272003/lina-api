@@ -68,7 +68,7 @@ class SolicitudController extends Controller
      * Maneja la subida de archivos (documentos) y datos (texto/número).
      *
      * @param    \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\Response
+     * @return \Illuminate\Contracts\Routing\ResponseFactory|\Illuminate\Http\Response
      */
     public function store(Request $request)
     {
