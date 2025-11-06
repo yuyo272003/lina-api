@@ -14,6 +14,9 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\SolicitudRechazadaMail;
+
 
 class SolicitudController extends Controller
 {
@@ -28,8 +31,8 @@ class SolicitudController extends Controller
      * @var array
      */
     private $mapaRoles = [
-        5 => 'Coordinación', 
-        6 => 'Coordinación', 
+        5 => 'Coordinación',
+        6 => 'Coordinación',
         7 => 'Contaduría',
         8 => 'Secretaría'
     ];
@@ -46,7 +49,7 @@ class SolicitudController extends Controller
             ->whereIn('role_id', $this->rolesAdministrativos)
             ->exists();
     }
-    
+
     /**
      * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
      *
@@ -71,8 +74,8 @@ class SolicitudController extends Controller
     {
         // El array 'tramites' viene como JSON string dentro de FormData
         $tramitesJson = $request->input('tramites');
-        $tramitesData = json_decode($tramitesJson, true); 
-        
+        $tramitesData = json_decode($tramitesJson, true);
+
         // Validación estricta de que los datos de trámites existen y son válidos.
         if (empty($tramitesData) || !is_array($tramitesData)) {
             return response()->json([
@@ -83,13 +86,13 @@ class SolicitudController extends Controller
                 ]
             ], 422);
         }
-        
+
         // Validación de que al menos un trámite tiene el ID requerido
         $request->merge(['tramites_data' => $tramitesData]);
         $request->validate([
             'tramites_data.*.id' => 'required|integer|exists:tramites,idTramite',
         ]);
-        
+
         $user = Auth::user();
 
         // Extraemos solo los IDs para las relaciones
@@ -121,26 +124,26 @@ class SolicitudController extends Controller
                     $requisito = $allRequisitos[$nombreRequisito] ?? null;
 
                     if (!$requisito) continue;
-                    
+
                     $respuestaFinal = $respuesta;
 
                     // Lógica para documentos
                     if ($requisito->tipo === 'documento') {
                         // Buscar el archivo subido en la estructura
                         $archivo = $request->file("files.{$tramiteData['id']}.{$nombreRequisito}");
-                        
+
                         if ($archivo) {
                             // Validación del archivo
                             if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
-                                continue; 
+                                continue;
                             }
 
                             // Almacenar el archivo en storage/app/public/documentos/{idSolicitud}
                             $nombreArchivo = "{$nombreRequisito}_" . time() . '.' . $archivo->extension();
                             $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'public');
-                            
+
                             // Guardar la RUTA del archivo en la BD
-                            $respuestaFinal = $ruta; 
+                            $respuestaFinal = $ruta;
                         } else {
                             continue;
                         }
@@ -184,34 +187,34 @@ class SolicitudController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-        
+
         // Obtener el role_id del usuario.
         $userRole = DB::table('role_usuario')
             ->where('user_id', $user->id)
-            ->value('role_id');    
+            ->value('role_id');
 
         // Fases 'En revisión'
         $estados_visibles = [];
         $roles_coordinacion = [5, 6]; // Roles que ven la fase inicial
 
-        
+
         // Lógica de Visibilidad Escalonada para 'En revisión'
-        if (in_array($userRole, $roles_coordinacion)) {    
+        if (in_array($userRole, $roles_coordinacion)) {
             // Coordinadores (Rol 5 y 6) ven todas las fases de revisión
-            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3'];    
-        } elseif ($userRole == 7) {    
+            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3'];
+        } elseif ($userRole == 7) {
             // Contador (Rol 7) ve a partir de la FASE 2
-            $estados_visibles = ['en revisión 2', 'en revisión 3'];    
-        } elseif ($userRole == 8) {    
+            $estados_visibles = ['en revisión 2', 'en revisión 3'];
+        } elseif ($userRole == 8) {
             // Secretario (Rol 8) ve a partir de la FASE 3
-            $estados_visibles = ['en revisión 3'];    
+            $estados_visibles = ['en revisión 3'];
         }
 
         // Se mantienen los estados finales visibles para algunos roles administrativos
         if (in_array($userRole, $this->rolesAdministrativos)) { // Todos los roles administrativos ven "completada"
             $estados_visibles[] = 'completada';
         }
-        
+
         // Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
             ->leftJoin('solicitud_tramite', 'solicitudes.idSolicitud', '=', 'solicitud_tramite.idSolicitud')
@@ -225,7 +228,7 @@ class SolicitudController extends Controller
                 DB::raw("GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ') as tramites_nombres")
             )
             // Agregamos 'rol_rechazo' al GROUP BY
-            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at', 'solicitudes.rol_rechazo')    
+            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at', 'solicitudes.rol_rechazo')
             ->orderBy('solicitudes.created_at', 'desc');
 
         // Lógica de Filtrado por Rol
@@ -235,7 +238,7 @@ class SolicitudController extends Controller
                 if (!empty($estados_visibles)) {
                     $query->whereIn(DB::raw('LOWER(solicitudes.estado)'), array_filter($estados_visibles, fn($e) => $e !== 'rechazada'));
                 }
-                
+
                 // Mostrar las solicitudes 'rechazadas' que fueron rechazadas por ESTE rol.
                 // Para Coordinadores (Roles 5 y 6)
                 if (in_array($userRole, $roles_coordinacion)) {
@@ -243,7 +246,7 @@ class SolicitudController extends Controller
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
                           ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
-                }    
+                }
                 // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
                 elseif (in_array($userRole, [7, 8])) {
                     $query->orWhere(function ($q) use ($userRole) {
@@ -253,11 +256,11 @@ class SolicitudController extends Controller
                 }
             });
 
-        } elseif ($userRole == 3 || $userRole == 4) {    
+        } elseif ($userRole == 3 || $userRole == 4) {
             // ROL 3 Y 4 (Estudiantes): Solo pueden ver sus propias solicitudes en CUALQUIER estado.
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
         } else {
-            $solicitudesQuery->whereRaw('1 = 0');    
+            $solicitudesQuery->whereRaw('1 = 0');
         }
         $solicitudes = $solicitudesQuery->get();
         return response()->json($solicitudes);
@@ -300,12 +303,12 @@ class SolicitudController extends Controller
                 ->join('requisitos', 'solicitud_respuestas.requisito_id', '=', 'requisitos.idRequisito')
                 ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta', 'requisitos.tipo')
                 ->get();
-            
+
             // Mapear la respuesta para generar la URL si es un documento
             $tramite->respuestas = $respuestas->map(function($respuesta) {
                 if ($respuesta->tipo === 'documento' && Storage::disk('public')->exists($respuesta->respuesta)) {
                     $respuesta->url_documento = asset('storage/' . $respuesta->respuesta);
-                    $respuesta->nombre_archivo = basename($respuesta->respuesta); 
+                    $respuesta->nombre_archivo = basename($respuesta->respuesta);
                 } else {
                     $respuesta->url_documento = null;
                     $respuesta->nombre_archivo = null;
@@ -319,7 +322,7 @@ class SolicitudController extends Controller
         if ($rutaAlmacenada && Storage::disk('public')->exists($rutaAlmacenada)) {
             $solicitud->comprobante = [
                 'nombreArchivo' => basename($rutaAlmacenada),
-                'url' => asset('storage/' . $rutaAlmacenada),    
+                'url' => asset('storage/' . $rutaAlmacenada),
             ];
         } else {
             $solicitud->comprobante = null;
@@ -400,7 +403,7 @@ class SolicitudController extends Controller
 
         // Lógica para determinar si la solicitud fue rechazada por Contador (Rol 7)
         $rechazadaPorContador = (
-            strtolower($solicitud->estado) === 'rechazada' &&    
+            strtolower($solicitud->estado) === 'rechazada' &&
             $solicitud->rol_rechazo == 7
         );
 
@@ -414,7 +417,7 @@ class SolicitudController extends Controller
 
             // Actualizar la base de datos
             $solicitud->ruta_comprobante = $ruta;
-            
+
             // LÓGICA DE TRANSICIÓN DE ESTADO
             if ($rechazadaPorContador) {
                  // Si la rechazo el Contador, al re-subir vuelve a la fase de revisión 2
@@ -423,11 +426,11 @@ class SolicitudController extends Controller
                  // Si estaba en 'en proceso' o rechazada por el coordinador, pasa a 'en revisión 1'
                  $solicitud->estado = 'en revisión 1';
             }
-            
+
             // Limpiar la información de rechazo anterior
-            $solicitud->rol_rechazo = null;    
+            $solicitud->rol_rechazo = null;
             $solicitud->observaciones = null;
-            
+
             $solicitud->save();
 
             // Devolver respuesta de éxito
@@ -474,7 +477,7 @@ class SolicitudController extends Controller
         $nuevoEstado = strtolower($request->estado);
 
         if ($estadoActual !== 'en revisión 1' && $nuevoEstado !== 'rechazada') {
-            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409);    
+            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409);
         }
 
         // 4. Actualizar el estado y guardar el rol si se rechaza
@@ -550,6 +553,26 @@ class SolicitudController extends Controller
 
         $solicitud->save();
 
+        // 5️⃣ Si la solicitud fue rechazada, enviar correo al alumno
+        if ($nuevoEstado === 'rechazada') {
+            try {
+                $contador = Auth::user(); // Usuario que rechazó
+                $estudiante = $solicitud->user; // Alumno dueño de la solicitud
+
+                if ($estudiante && $estudiante->email) {
+                    Mail::to($estudiante->email)->send(
+                        new SolicitudRechazadaMail(
+                            $solicitud,
+                            $contador,
+                            $request->input('observaciones', 'Sin motivo especificado.')
+                        )
+                    );
+                }
+            } catch (\Exception $e) {
+                \Log::error("❌ Error al enviar correo de rechazo: " . $e->getMessage());
+            }
+        }
+
         return response()->json([
             'message' => 'Estado de la solicitud actualizado con éxito.',
             'solicitud' => $solicitud
@@ -599,8 +622,8 @@ class SolicitudController extends Controller
                 ->get();
             $tramite->respuestas = $respuestas;
         }
-        
-        $solicitud->comprobante = null;    
+
+        $solicitud->comprobante = null;
 
         return response()->json([
             'message' => 'Solicitud cancelada con éxito.',
