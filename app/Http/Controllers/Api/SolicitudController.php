@@ -49,13 +49,11 @@ class SolicitudController extends Controller
     
     /**
      * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
-     * Solo devuelve el ID si el usuario tiene uno de los roles administrativos definidos.
      *
      * @return int|null
      */
     private function obtenerRolAccion(): ?int
     {
-        // Se asume que el usuario tiene un solo rol relevante en esta tabla pivot
         return DB::table('role_usuario')
             ->where('user_id', Auth::id())
             ->whereIn('role_id', $this->rolesAdministrativos)
@@ -64,24 +62,38 @@ class SolicitudController extends Controller
 
     /**
      * Almacena una nueva solicitud junto con la generación de la orden de pago en PDF.
+     * Maneja la subida de archivos (documentos) y datos (texto/número).
      *
-     * @param   \Illuminate\Http\Request  $request
+     * @param    \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
     public function store(Request $request)
     {
-        // ... (El método store no necesita cambios, ya que no maneja rechazos) ...
-        // VALIDACIÓN
+        // El array 'tramites' viene como JSON string dentro de FormData
+        $tramitesJson = $request->input('tramites');
+        $tramitesData = json_decode($tramitesJson, true); 
+        
+        // Validación estricta de que los datos de trámites existen y son válidos.
+        if (empty($tramitesData) || !is_array($tramitesData)) {
+            return response()->json([
+                'error' => 'La estructura de datos de los trámites es inválida o falta.',
+                'details' => [
+                    'tramites_json' => $tramitesJson,
+                    'validation' => 'Fallo al decodificar JSON.'
+                ]
+            ], 422);
+        }
+        
+        // Validación de que al menos un trámite tiene el ID requerido
+        $request->merge(['tramites_data' => $tramitesData]);
         $request->validate([
-            'tramites' => 'required|array',
-            'tramites.*.id' => 'required|integer|exists:tramites,idTramite',
-            'tramites.*.respuestas' => 'present|array'
+            'tramites_data.*.id' => 'required|integer|exists:tramites,idTramite',
         ]);
-
+        
         $user = Auth::user();
 
         // Extraemos solo los IDs para las relaciones
-        $tramite_ids = collect($request->tramites)->pluck('id')->all();
+        $tramite_ids = collect($tramitesData)->pluck('id')->all();
         $tramites = Tramite::find($tramite_ids);
         $montoTotal = $tramites->sum('costoTramite');
 
@@ -100,21 +112,48 @@ class SolicitudController extends Controller
             'numeroCuentaDestino' => config('app.numero_cuenta_bancaria'),
         ]);
 
+        // OBTENER REQUISITOS PARA SABER EL TIPO
+        $allRequisitos = Requisito::all()->keyBy('nombreRequisito');
+
         // GUARDAR LAS RESPUESTAS DE LOS REQUISITOS
-        foreach ($request->tramites as $tramiteData) {
+        foreach ($tramitesData as $tramiteData) {
             if (!empty($tramiteData['respuestas'])) {
                 foreach ($tramiteData['respuestas'] as $nombreRequisito => $respuesta) {
-                    // Busca el requisito por su nombre para obtener su ID
-                    $requisito = Requisito::where('nombreRequisito', $nombreRequisito)->first();
+                    $requisito = $allRequisitos[$nombreRequisito] ?? null;
 
-                    if ($requisito && $respuesta) {
-                        SolicitudRespuesta::create([
-                            'solicitud_id' => $solicitud->idSolicitud,
-                            'tramite_id'   => $tramiteData['id'],
-                            'requisito_id' => $requisito->idRequisito,
-                            'respuesta'    => $respuesta,
-                        ]);
+                    if (!$requisito) continue;
+                    
+                    $respuestaFinal = $respuesta;
+
+                    // Lógica para documentos
+                    if ($requisito->tipo === 'documento') {
+                        // Buscar el archivo subido en la estructura
+                        $archivo = $request->file("files.{$tramiteData['id']}.{$nombreRequisito}");
+                        
+                        if ($archivo) {
+                            // Validación del archivo
+                            if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
+                                continue; 
+                            }
+
+                            // Almacenar el archivo en storage/app/public/documentos/{idSolicitud}
+                            $nombreArchivo = "{$nombreRequisito}_" . time() . '.' . $archivo->extension();
+                            $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'public');
+                            
+                            // Guardar la RUTA del archivo en la BD
+                            $respuestaFinal = $ruta; 
+                        } else {
+                            continue;
+                        }
                     }
+
+                    // Guardar la respuesta (dato de texto o ruta de archivo)
+                    SolicitudRespuesta::create([
+                        'solicitud_id' => $solicitud->idSolicitud,
+                        'tramite_id'   => $tramiteData['id'],
+                        'requisito_id' => $requisito->idRequisito,
+                        'respuesta'    => $respuestaFinal,
+                    ]);
                 }
             }
         }
@@ -140,7 +179,7 @@ class SolicitudController extends Controller
     /**
      * Muestra una lista de solicitudes basadas en el rol del usuario autenticado.
      *
-     * @param   \Illuminate\Http\Request  $request
+     * @param    \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function index(Request $request)
@@ -150,7 +189,7 @@ class SolicitudController extends Controller
         // Obtener el role_id del usuario.
         $userRole = DB::table('role_usuario')
             ->where('user_id', $user->id)
-            ->value('role_id'); 
+            ->value('role_id');    
 
         // Fases 'En revisión'
         $estados_visibles = [];
@@ -158,15 +197,15 @@ class SolicitudController extends Controller
 
         
         // Lógica de Visibilidad Escalonada para 'En revisión'
-        if (in_array($userRole, $roles_coordinacion)) { 
+        if (in_array($userRole, $roles_coordinacion)) {    
             // Coordinadores (Rol 5 y 6) ven todas las fases de revisión
-            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3']; 
-        } elseif ($userRole == 7) { 
+            $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3'];    
+        } elseif ($userRole == 7) {    
             // Contador (Rol 7) ve a partir de la FASE 2
-            $estados_visibles = ['en revisión 2', 'en revisión 3']; 
-        } elseif ($userRole == 8) { 
+            $estados_visibles = ['en revisión 2', 'en revisión 3'];    
+        } elseif ($userRole == 8) {    
             // Secretario (Rol 8) ve a partir de la FASE 3
-            $estados_visibles = ['en revisión 3']; 
+            $estados_visibles = ['en revisión 3'];    
         }
 
         // Se mantienen los estados finales visibles para algunos roles administrativos
@@ -183,11 +222,11 @@ class SolicitudController extends Controller
                 'solicitudes.folio',
                 'solicitudes.estado',
                 'solicitudes.created_at',
-                'solicitudes.rol_rechazo', // Incluimos la columna rol_rechazo
+                'solicitudes.rol_rechazo',
                 DB::raw("GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ') as tramites_nombres")
             )
             // Agregamos 'rol_rechazo' al GROUP BY
-            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at', 'solicitudes.rol_rechazo') 
+            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at', 'solicitudes.rol_rechazo')    
             ->orderBy('solicitudes.created_at', 'desc');
 
         // Lógica de Filtrado por Rol
@@ -205,7 +244,7 @@ class SolicitudController extends Controller
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
                           ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
-                } 
+                }    
                 // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
                 elseif (in_array($userRole, [7, 8])) {
                     $query->orWhere(function ($q) use ($userRole) {
@@ -215,11 +254,11 @@ class SolicitudController extends Controller
                 }
             });
 
-        } elseif ($userRole == 3 || $userRole == 4) { 
+        } elseif ($userRole == 3 || $userRole == 4) {    
             // ROL 3 Y 4 (Estudiantes): Solo pueden ver sus propias solicitudes en CUALQUIER estado.
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
         } else {
-            $solicitudesQuery->whereRaw('1 = 0'); 
+            $solicitudesQuery->whereRaw('1 = 0');    
         }
         $solicitudes = $solicitudesQuery->get();
         return response()->json($solicitudes);
@@ -228,7 +267,7 @@ class SolicitudController extends Controller
     /**
      * Muestra los detalles de una solicitud específica.
      *
-     * @param   \App\Models\Solicitud  $solicitud
+     * @param    \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function show(Solicitud $solicitud)
@@ -260,10 +299,20 @@ class SolicitudController extends Controller
             $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
                 ->where('tramite_id', $tramite->idTramite)
                 ->join('requisitos', 'solicitud_respuestas.requisito_id', '=', 'requisitos.idRequisito')
-                ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta')
+                ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta', 'requisitos.tipo')
                 ->get();
-
-            $tramite->respuestas = $respuestas;
+            
+            // Mapear la respuesta para generar la URL si es un documento
+            $tramite->respuestas = $respuestas->map(function($respuesta) {
+                if ($respuesta->tipo === 'documento' && Storage::disk('public')->exists($respuesta->respuesta)) {
+                    $respuesta->url_documento = asset('storage/' . $respuesta->respuesta);
+                    $respuesta->nombre_archivo = basename($respuesta->respuesta); 
+                } else {
+                    $respuesta->url_documento = null;
+                    $respuesta->nombre_archivo = null;
+                }
+                return $respuesta;
+            });
         }
 
         // Buscar comprobante físico
@@ -271,7 +320,7 @@ class SolicitudController extends Controller
         if ($rutaAlmacenada && Storage::disk('public')->exists($rutaAlmacenada)) {
             $solicitud->comprobante = [
                 'nombreArchivo' => basename($rutaAlmacenada),
-                'url' => asset('storage/' . $rutaAlmacenada), 
+                'url' => asset('storage/' . $rutaAlmacenada),    
             ];
         } else {
             $solicitud->comprobante = null;
@@ -291,7 +340,7 @@ class SolicitudController extends Controller
     /**
      * Genera y descarga el PDF de la orden de pago para una solicitud existente.
      *
-     * @param   \App\Models\Solicitud  $solicitud
+     * @param    \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\Response
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
@@ -314,7 +363,7 @@ class SolicitudController extends Controller
               return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
         }
 
-        // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE (CAMBIO CLAVE)
+        // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE
         $user = Auth::user();
         $user->load('estudiante.programaEducativo');
 
@@ -339,10 +388,9 @@ class SolicitudController extends Controller
 
     /**
      * Permite al estudiante subir el comprobante de pago.
-     * Si la solicitud fue rechazada por Contaduría (Rol 7), la devuelve a 'en revisión 2'.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\Solicitud  $solicitud
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function subirComprobante(Request $request, Solicitud $solicitud)
@@ -354,7 +402,7 @@ class SolicitudController extends Controller
 
         // Lógica para determinar si la solicitud fue rechazada por Contador (Rol 7)
         $rechazadaPorContador = (
-            strtolower($solicitud->estado) === 'rechazada' && 
+            strtolower($solicitud->estado) === 'rechazada' &&    
             $solicitud->rol_rechazo == 7
         );
 
@@ -379,7 +427,7 @@ class SolicitudController extends Controller
             }
             
             // Limpiar la información de rechazo anterior
-            $solicitud->rol_rechazo = null; 
+            $solicitud->rol_rechazo = null;    
             $solicitud->observaciones = null;
             
             $solicitud->save();
@@ -428,7 +476,7 @@ class SolicitudController extends Controller
         $nuevoEstado = strtolower($request->estado);
 
         if ($estadoActual !== 'en revisión 1' && $nuevoEstado !== 'rechazada') {
-            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409); 
+            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409);    
         }
 
         // 4. Actualizar el estado y guardar el rol si se rechaza
@@ -513,31 +561,31 @@ class SolicitudController extends Controller
 /**
      * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
      *
-     * @param  \App\Models\Solicitud  $solicitud
+     * @param  \App\Models\Solicitud  $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function cancelar(Solicitud $solicitud)
     {
-        // 1. Autorización: Solo el dueño de la solicitud puede cancelarla.
+        //Solo el dueño de la solicitud puede cancelarla.
         if (Auth::id() !== $solicitud->user_id) {
             return response()->json(['message' => 'No autorizado para cancelar esta solicitud.'], 403);
         }
 
         $estadoActual = strtolower($solicitud->estado);
 
-        // 2. Validación: Solo se permite cancelar si el estado es 'en proceso' o 'rechazada'.
+        // Solo se permite cancelar si el estado es 'en proceso' o 'rechazada'.
         if ($estadoActual !== 'en proceso' && !Str::contains($estadoActual, 'rechazada')) {
             return response()->json([
                 'message' => "La solicitud no se puede cancelar en el estado actual: '{$solicitud->estado}'."
             ], 409); // 409 Conflict
         }
 
-        // 3. Actualizar el estado a 'cancelada'
+        // Actualizar el estado a 'cancelada'
         $solicitud->estado = 'cancelada';
         $solicitud->observaciones = 'Cancelada por el usuario.';
         $solicitud->save();
 
-        // 4. Devolver la solicitud actualizada
+        // Devolver la solicitud actualizada
         $solicitud->load([
             'tramites',
             'user' => function ($query) {
@@ -553,9 +601,8 @@ class SolicitudController extends Controller
                 ->get();
             $tramite->respuestas = $respuestas;
         }
-
-        // Simula la carga de comprobante para el frontend
-        $solicitud->comprobante = null; 
+        
+        $solicitud->comprobante = null;    
 
         return response()->json([
             'message' => 'Solicitud cancelada con éxito.',
