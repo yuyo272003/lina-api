@@ -14,9 +14,9 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use App\Models\Configuracion;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\SolicitudRechazadaMail;
-
 
 class SolicitudController extends Controller
 {
@@ -64,24 +64,11 @@ class SolicitudController extends Controller
     }
 
     /**
-     * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
-     *
-     * @return int|null
-     */
-    private function obtenerRolAccion(): ?int
-    {
-        return DB::table('role_usuario')
-            ->where('user_id', Auth::id())
-            ->whereIn('role_id', $this->rolesAdministrativos)
-            ->value('role_id');
-    }
-
-    /**
      * Almacena una nueva solicitud junto con la generación de la orden de pago en PDF.
      * Maneja la subida de archivos (documentos) y datos (texto/número).
      *
      * @param    \Illuminate\Http\Request  $request
-     * @return \Illuminate\Contracts\Routing\ResponseFactory|\Illuminate\Http\Response
+     * @return \Illuminate\Http\Response
      */
     public function store(Request $request)
     {
@@ -113,19 +100,25 @@ class SolicitudController extends Controller
         $tramites = Tramite::find($tramite_ids);
         $montoTotal = $tramites->sum('costoTramite');
 
+        $numeroCuentaDestino = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->value('valor');
+    
+        // Si no se encuentra, usar un valor predeterminado o lanzar un error
+        if (!$numeroCuentaDestino) {
+            return response()->json(['error' => 'No se encontró el número de cuenta bancaria de destino en la configuración.'], 500);
+        }
+
         // CREACIÓN DE SOLICITUD Y ORDEN DE PAGO
         $solicitud = Solicitud::create([
             'user_id' => $user->id,
             'folio' => 'SOL-' . now()->format('Ymd') . '-' . Str::random(6),
             'estado' => 'en proceso',
-            // rol_rechazo se inicializa en NULL por defecto en la BD
         ]);
 
         $solicitud->tramites()->attach($tramite_ids);
 
         $ordenPago = $solicitud->ordenesPago()->create([
             'montoTotal' => $montoTotal,
-            'numeroCuentaDestino' => config('app.numero_cuenta_bancaria'),
+            'numeroCuentaDestino' => $numeroCuentaDestino,
         ]);
 
         // OBTENER REQUISITOS PARA SABER EL TIPO
@@ -145,11 +138,6 @@ class SolicitudController extends Controller
                     if ($requisito->tipo === 'documento') {
                         // Buscar el archivo subido en la estructura
                         $archivo = $request->file("files.{$tramiteData['id']}.{$nombreRequisito}");
-
-                        if ($archivo) {
-                            // Validación del archivo
-                            if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
-                                continue;
                         
                         if ($archivo) {
                             // Validación del archivo
@@ -206,11 +194,10 @@ class SolicitudController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
-
+        
         // Obtener el role_id del usuario.
         $userRole = DB::table('role_usuario')
             ->where('user_id', $user->id)
-            ->value('role_id');
             ->value('role_id');    
 
         // Fases 'En revisión'
@@ -266,7 +253,7 @@ class SolicitudController extends Controller
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
                           ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
-                  }    
+                }    
                 // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
                 elseif (in_array($userRole, [7, 8])) {
                     $query->orWhere(function ($q) use ($userRole) {
@@ -367,7 +354,6 @@ class SolicitudController extends Controller
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
     {
-        // ... (No necesita cambios) ...
         // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
 
@@ -382,7 +368,7 @@ class SolicitudController extends Controller
         $ordenPago = $solicitud->ordenesPago->first();
 
         if (!$ordenPago) {
-              return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
+             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
         }
 
         // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE
@@ -528,7 +514,7 @@ class SolicitudController extends Controller
      */
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
     {
-        // 1. Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
+        // 1️⃣ Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
         if (!$this->tieneRolAdministrativo(Auth::id())) {
             return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
         }
@@ -538,9 +524,8 @@ class SolicitudController extends Controller
             'estado' => [
                 'required',
                 'string',
-                Rule::in(['rechazada', 'en revisión 3']), // Estados válidos para el contador
+                Rule::in(['rechazada', 'en revisión 3']),
             ],
-            // Añadimos validación para observaciones si se rechaza
             'observaciones' => [
                 Rule::requiredIf($request->input('estado') === 'rechazada'),
                 'nullable',
@@ -552,22 +537,20 @@ class SolicitudController extends Controller
         $estadoActual = strtolower($solicitud->estado);
         $nuevoEstado = strtolower($request->estado);
 
-        // 3. Reglas de transición válidas para el contador
+        // 3️⃣ Reglas de transición válidas para el contador
         if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
             return response()->json([
                 'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
             ], 409);
         }
 
-        // 4. Actualizar el estado y guardar el rol si se rechaza
+        // 4️⃣ Actualizar el estado y guardar el rol si se rechaza
         $solicitud->estado = $nuevoEstado;
 
         if ($nuevoEstado === 'rechazada') {
             $solicitud->observaciones = $request->input('observaciones', null);
-            // 💡 REGISTRO DEL ROL: Si es rechazada, guarda quién lo hizo.
             $solicitud->rol_rechazo = $this->obtenerRolAccion();
         } else {
-            // Limpiar observaciones y rol_rechazo si se acepta/avanza
             $solicitud->observaciones = null;
             $solicitud->rol_rechazo = null;
         }
@@ -601,12 +584,12 @@ class SolicitudController extends Controller
         ], 200);
     }
 
-/**
-     * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
-     *
-     * @param  \App\Models\Solicitud  $solicitud
-     * @return \Illuminate\Http\JsonResponse
-     */
+    /**
+        * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
+        *
+        * @param  \App\Models\Solicitud  $solicitud
+        * @return \Illuminate\Http\JsonResponse
+        */
     public function cancelar(Solicitud $solicitud)
     {
         //Solo el dueño de la solicitud puede cancelarla.
@@ -620,7 +603,7 @@ class SolicitudController extends Controller
         if ($estadoActual !== 'en proceso' && !Str::contains($estadoActual, 'rechazada')) {
             return response()->json([
                 'message' => "La solicitud no se puede cancelar en el estado actual: '{$solicitud->estado}'."
-            ], 409); // 409 Conflict
+            ], 409);
         }
 
         // Actualizar el estado a 'cancelada'
@@ -651,5 +634,62 @@ class SolicitudController extends Controller
             'message' => 'Solicitud cancelada con éxito.',
             'solicitud' => $solicitud
         ], 200);
+    }
+
+    /**
+    * Actualiza el NUMERO_CUENTA_DESTINO GLOBAL en la tabla de configuraciones.
+    *
+    * @param  \Illuminate\Http\Request  $request
+    * @return \Illuminate\Http\JsonResponse
+    */
+    public function updateNumeroCuentaGlobal(Request $request)
+    {
+        // 1. Autorización
+        $rolActual = $this->obtenerRolAccion();
+
+        if ($rolActual !== 5) {
+            return response()->json([
+                'message' => 'No autorizado. Solo el rol de Coordinación principal puede actualizar el número de cuenta.'
+            ], 403);
+        }
+
+        // 2. Validación
+        $request->validate([
+            'numero_cuenta' => 'required|string|min:4|max:50',
+        ]);
+
+        // 3. Actualizar la configuración global en la BD
+        $configuracion = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->first();
+
+        if (!$configuracion) {
+            return response()->json(['message' => 'Configuración de cuenta no encontrada.'], 404);
+        }
+
+        $configuracion->valor = $request->input('numero_cuenta');
+        $configuracion->save();
+
+        return response()->json([
+            'message' => 'Número de cuenta GLOBAL actualizado con éxito.',
+            'numero_cuenta' => $configuracion->valor
+        ], 200);
+    }
+
+    /**
+     * Obtiene el valor del NUMERO_CUENTA_DESTINO GLOBAL de la base de datos.
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getNumeroCuentaGlobal()
+    {
+        if (!$this->tieneRolAdministrativo(Auth::id())) {
+            // En este caso, permitiremos que cualquier admin lo vea.
+            return response()->json(['message' => 'No autorizado para ver la configuración de la cuenta.'], 403);
+        }
+    
+        $numeroCuenta = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->value('valor');
+
+        return response()->json([
+            'numero_cuenta' => $numeroCuenta,
+        ]);
     }
 }
