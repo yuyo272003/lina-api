@@ -14,6 +14,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use App\Models\Configuracion;
 
 class SolicitudController extends Controller
 {
@@ -97,6 +98,13 @@ class SolicitudController extends Controller
         $tramites = Tramite::find($tramite_ids);
         $montoTotal = $tramites->sum('costoTramite');
 
+        $numeroCuentaDestino = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->value('valor');
+    
+        // Si no se encuentra, usar un valor predeterminado o lanzar un error
+        if (!$numeroCuentaDestino) {
+            return response()->json(['error' => 'No se encontró el número de cuenta bancaria de destino en la configuración.'], 500);
+        }
+
         // CREACIÓN DE SOLICITUD Y ORDEN DE PAGO
         $solicitud = Solicitud::create([
             'user_id' => $user->id,
@@ -108,7 +116,7 @@ class SolicitudController extends Controller
 
         $ordenPago = $solicitud->ordenesPago()->create([
             'montoTotal' => $montoTotal,
-            'numeroCuentaDestino' => config('app.numero_cuenta_bancaria'),
+            'numeroCuentaDestino' => $numeroCuentaDestino,
         ]);
 
         // OBTENER REQUISITOS PARA SABER EL TIPO
@@ -556,12 +564,12 @@ class SolicitudController extends Controller
         ], 200);
     }
 
-/**
-     * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
-     *
-     * @param  \App\Models\Solicitud  $solicitud
-     * @return \Illuminate\Http\JsonResponse
-     */
+    /**
+        * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
+        *
+        * @param  \App\Models\Solicitud  $solicitud
+        * @return \Illuminate\Http\JsonResponse
+        */
     public function cancelar(Solicitud $solicitud)
     {
         //Solo el dueño de la solicitud puede cancelarla.
@@ -575,7 +583,7 @@ class SolicitudController extends Controller
         if ($estadoActual !== 'en proceso' && !Str::contains($estadoActual, 'rechazada')) {
             return response()->json([
                 'message' => "La solicitud no se puede cancelar en el estado actual: '{$solicitud->estado}'."
-            ], 409); // 409 Conflict
+            ], 409);
         }
 
         // Actualizar el estado a 'cancelada'
@@ -606,5 +614,62 @@ class SolicitudController extends Controller
             'message' => 'Solicitud cancelada con éxito.',
             'solicitud' => $solicitud
         ], 200);
+    }
+
+    /**
+    * Actualiza el NUMERO_CUENTA_DESTINO GLOBAL en la tabla de configuraciones.
+    *
+    * @param  \Illuminate\Http\Request  $request
+    * @return \Illuminate\Http\JsonResponse
+    */
+    public function updateNumeroCuentaGlobal(Request $request)
+    {
+        // 1. Autorización
+        $rolActual = $this->obtenerRolAccion();
+
+        if ($rolActual !== 5) {
+            return response()->json([
+                'message' => 'No autorizado. Solo el rol de Coordinación principal puede actualizar el número de cuenta.'
+            ], 403);
+        }
+
+        // 2. Validación
+        $request->validate([
+            'numero_cuenta' => 'required|string|min:4|max:50',
+        ]);
+
+        // 3. Actualizar la configuración global en la BD
+        $configuracion = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->first();
+
+        if (!$configuracion) {
+            return response()->json(['message' => 'Configuración de cuenta no encontrada.'], 404);
+        }
+
+        $configuracion->valor = $request->input('numero_cuenta');
+        $configuracion->save();
+
+        return response()->json([
+            'message' => 'Número de cuenta GLOBAL actualizado con éxito.',
+            'numero_cuenta' => $configuracion->valor
+        ], 200);
+    }
+
+    /**
+     * Obtiene el valor del NUMERO_CUENTA_DESTINO GLOBAL de la base de datos.
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getNumeroCuentaGlobal()
+    {
+        if (!$this->tieneRolAdministrativo(Auth::id())) {
+            // En este caso, permitiremos que cualquier admin lo vea.
+            return response()->json(['message' => 'No autorizado para ver la configuración de la cuenta.'], 403);
+        }
+    
+        $numeroCuenta = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->value('valor');
+
+        return response()->json([
+            'numero_cuenta' => $numeroCuenta,
+        ]);
     }
 }
