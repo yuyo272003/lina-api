@@ -68,7 +68,7 @@ class SolicitudController extends Controller
      * Almacena una nueva solicitud junto con la generación de la orden de pago en PDF.
      * Maneja la subida de archivos (documentos) y datos (texto/número).
      *
-     * @param    \Illuminate\Http\Request  $request
+     * @param \Illuminate\Http\Request $request
      * @return \Illuminate\Http\Response
      */
     public function store(Request $request)
@@ -160,9 +160,9 @@ class SolicitudController extends Controller
                     // Guardar la respuesta (dato de texto o ruta de archivo)
                     SolicitudRespuesta::create([
                         'solicitud_id' => $solicitud->idSolicitud,
-                        'tramite_id'   => $tramiteData['id'],
+                        'tramite_id' => $tramiteData['id'],
                         'requisito_id' => $requisito->idRequisito,
-                        'respuesta'    => $respuestaFinal,
+                        'respuesta' => $respuestaFinal,
                     ]);
                 }
             }
@@ -189,7 +189,7 @@ class SolicitudController extends Controller
     /**
      * Muestra una lista de solicitudes basadas en el rol del usuario autenticado.
      *
-     * @param    \Illuminate\Http\Request  $request
+     * @param \Illuminate\Http\Request $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function index(Request $request)
@@ -252,14 +252,13 @@ class SolicitudController extends Controller
                 if (in_array($userRole, $roles_coordinacion)) {
                     $query->orWhere(function ($q) use ($roles_coordinacion) {
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
-                          ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
+                            ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
-                }
-                // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
+                } // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
                 elseif (in_array($userRole, [7, 8])) {
                     $query->orWhere(function ($q) use ($userRole) {
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
-                          ->where('solicitudes.rol_rechazo', $userRole);
+                            ->where('solicitudes.rol_rechazo', $userRole);
                     });
                 }
             });
@@ -277,7 +276,7 @@ class SolicitudController extends Controller
     /**
      * Muestra los detalles de una solicitud específica.
      *
-     * @param    \App\Models\Solicitud  $solicitud
+     * @param \App\Models\Solicitud $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function show(Solicitud $solicitud)
@@ -313,7 +312,7 @@ class SolicitudController extends Controller
                 ->get();
 
             // Mapear la respuesta para generar la URL si es un documento
-            $tramite->respuestas = $respuestas->map(function($respuesta) {
+            $tramite->respuestas = $respuestas->map(function ($respuesta) {
                 if ($respuesta->tipo === 'documento' && Storage::disk('public')->exists($respuesta->respuesta)) {
                     $respuesta->url_documento = asset('storage/' . $respuesta->respuesta);
                     $respuesta->nombre_archivo = basename($respuesta->respuesta);
@@ -338,10 +337,10 @@ class SolicitudController extends Controller
 
         // Exponer el rol que rechazó la solicitud para el estudiante
         if (strtolower($solicitud->estado) === 'rechazada' && $solicitud->rol_rechazo) {
-            $rolId = (int) $solicitud->rol_rechazo;
+            $rolId = (int)$solicitud->rol_rechazo;
             $solicitud->rol_rechazo_nombre = $this->mapaRoles[$rolId] ?? 'Rol Desconocido';
         } else {
-             $solicitud->rol_rechazo_nombre = null;
+            $solicitud->rol_rechazo_nombre = null;
         }
 
         return response()->json($solicitud);
@@ -350,7 +349,7 @@ class SolicitudController extends Controller
     /**
      * Genera y descarga el PDF de la orden de pago para una solicitud existente.
      *
-     * @param    \App\Models\Solicitud  $solicitud
+     * @param \App\Models\Solicitud $solicitud
      * @return \Illuminate\Http\Response
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
@@ -369,7 +368,7 @@ class SolicitudController extends Controller
         $ordenPago = $solicitud->ordenesPago->first();
 
         if (!$ordenPago) {
-             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
+            return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
         }
 
         // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE
@@ -380,8 +379,8 @@ class SolicitudController extends Controller
         $data = [
             'solicitud' => $solicitud,
             'ordenPago' => $ordenPago,
-            'tramites'  => $solicitud->tramites,
-            'user'      => $user,
+            'tramites' => $solicitud->tramites,
+            'user' => $user,
         ];
 
         // 6. Generar el PDF
@@ -398,8 +397,8 @@ class SolicitudController extends Controller
     /**
      * Permite al estudiante subir el comprobante de pago.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\Solicitud  $solicitud
+     * @param \Illuminate\Http\Request $request
+     * @param \App\Models\Solicitud $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function subirComprobante(Request $request, Solicitud $solicitud)
@@ -428,11 +427,11 @@ class SolicitudController extends Controller
 
             // LÓGICA DE TRANSICIÓN DE ESTADO
             if ($rechazadaPorContador) {
-                 // Si la rechazo el Contador, al re-subir vuelve a la fase de revisión 2
-                 $solicitud->estado = 'en revisión 2';
+                // Si la rechazo el Contador, al re-subir vuelve a la fase de revisión 2
+                $solicitud->estado = 'en revisión 2';
             } else {
-                 // Si estaba en 'en proceso' o rechazada por el coordinador, pasa a 'en revisión 1'
-                 $solicitud->estado = 'en revisión 1';
+                // Si estaba en 'en proceso' o rechazada por el coordinador, pasa a 'en revisión 1'
+                $solicitud->estado = 'en revisión 1';
             }
 
             // Limpiar la información de rechazo anterior
@@ -454,8 +453,8 @@ class SolicitudController extends Controller
     /**
      * Actualiza el estado de una solicitud (Coordinador).
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\Solicitud  $solicitud
+     * @param \Illuminate\Http\Request $request
+     * @param \App\Models\Solicitud $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function updateEstado(Request $request, Solicitud $solicitud)
@@ -534,8 +533,8 @@ class SolicitudController extends Controller
     /**
      * Actualiza el estado de una solicitud por parte del contador.
      *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\Solicitud  $solicitud
+     * @param \Illuminate\Http\Request $request
+     * @param \App\Models\Solicitud $solicitud
      * @return \Illuminate\Http\JsonResponse
      */
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
@@ -611,11 +610,11 @@ class SolicitudController extends Controller
     }
 
     /**
-        * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
-        *
-        * @param  \App\Models\Solicitud  $solicitud
-        * @return \Illuminate\Http\JsonResponse
-        */
+     * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
+     *
+     * @param \App\Models\Solicitud $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function cancelar(Solicitud $solicitud)
     {
         //Solo el dueño de la solicitud puede cancelarla.
@@ -663,11 +662,11 @@ class SolicitudController extends Controller
     }
 
     /**
-    * Actualiza el NUMERO_CUENTA_DESTINO GLOBAL en la tabla de configuraciones.
-    *
-    * @param  \Illuminate\Http\Request  $request
-    * @return \Illuminate\Http\JsonResponse
-    */
+     * Actualiza el NUMERO_CUENTA_DESTINO GLOBAL en la tabla de configuraciones.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
     public function updateNumeroCuentaGlobal(Request $request)
     {
         // 1. Autorización
@@ -718,4 +717,81 @@ class SolicitudController extends Controller
             'numero_cuenta' => $numeroCuenta,
         ]);
     }
+
+    public function subirArchivo(Request $request, Solicitud $solicitud)
+    {
+        // --- 1. VALIDACIÓN ---
+        $data = $request->validate([
+            'archivo' => 'required|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10000',
+            'tramite_id' => [
+                'required',
+                'integer',
+                Rule::exists('solicitud_tramite', 'idTramite')
+                    ->where('idSolicitud', $solicitud->idSolicitud)
+            ],
+        ]);
+
+        $tramiteId = $data['tramite_id'];
+        $file = $request->file('archivo');
+
+        // --- 2. GUARDAR EL ARCHIVO ---
+        $nombreArchivo = 'sol' . $solicitud->idSolicitud . '_tram' . $tramiteId . '_' . time() . '.' . $file->extension();
+        $directorio = 'tramitesEnviados';
+
+        if (!Storage::disk('public')->exists($directorio)) {
+            Storage::disk('public')->makeDirectory($directorio);
+        }
+
+        $ruta = $file->storeAs($directorio, $nombreArchivo, 'public');
+
+        // --- 3. ACTUALIZAR LA TABLA PIVOTE ---
+        $solicitud->tramites()->updateExistingPivot($tramiteId, [
+            'ruta_archivo_final' => $ruta
+        ]);
+
+        // --- 4. LÓGICA DE ESTADO Y CORREO (¡MEJORADA!) ---
+
+        // Recargamos la relación para contar los archivos que acabamos de subir
+        $solicitud->load('tramites');
+
+        // Contamos cuántos trámites de esta solicitud YA tienen su archivo final
+        $tramitesCompletados = $solicitud->tramites
+            ->whereNotNull('pivot.ruta_archivo_final')
+            ->count();
+        $tramitesTotales = $solicitud->tramites->count();
+
+        // Verificamos si todos los trámites pedidos ya tienen su archivo
+        $todosListos = ($tramitesTotales > 0 && $tramitesTotales === $tramitesCompletados);
+
+        // Si YA están todos listos Y la solicitud no estaba 'completado'
+        if ($todosListos && $solicitud->estado !== 'completado') {
+
+            // ¡Cambiamos el estado de la solicitud!
+            $solicitud->estado = 'completado';
+            $solicitud->save();
+
+            // --- 5. ENVIAR CORREO DE ÉXITO (Solo se envía UNA vez) ---
+            try {
+                $secretaria = Auth::user(); // Usuario que completó
+                $estudiante = $solicitud->user; // Alumno dueño de la solicitud
+
+                if ($estudiante && $estudiante->email) {
+                    Mail::to($estudiante->email)->send(
+                    // Usamos el nuevo Mailable
+                        new SolicitudCompletadaMail($solicitud, $secretaria)
+                    );
+                }
+            } catch (\Exception $e) {
+                // Si falla el correo, lo registramos en el log pero no rompemos la app
+                Log::error("❌ Error al enviar correo de solicitud completada: " . $e->getMessage());
+            }
+        }
+
+        // --- 6. RESPUESTA ---
+        return response()->json([
+            'message' => 'Archivo subido con éxito.',
+            'solicitud' => $solicitud->fresh()->load('tramites'),
+        ], 200);
+    }
 }
+

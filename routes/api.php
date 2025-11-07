@@ -24,6 +24,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/solicitudes/{solicitud}', [SolicitudController::class, 'show']);
     Route::get('/solicitudes/{solicitud}/orden-de-pago', [SolicitudController::class, 'downloadOrdenDePago']);
     Route::post('/solicitudes/{solicitud}/comprobante', [SolicitudController::class, 'subirComprobante']);
+    Route::post('/solicitudes/{solicitud}/archivo', [SolicitudController::class, 'subirArchivo']);
     Route::post('/solicitudes/{solicitud}/validar', [SolicitudController::class, 'validar']);
     Route::patch('/solicitudes/{solicitud}/estado', [SolicitudController::class, 'updateEstado']);
     Route::patch('/solicitudes/{solicitud}/estado-contador', [SolicitudController::class, 'updateEstadoContador']);
@@ -31,7 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::resource('gestion/tramites', App\Http\Controllers\Api\TramiteRequisitoController::class)
         ->only(['index', 'store', 'update', 'destroy']);
     Route::get('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'getRequisitos']);
-    Route::post('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'storeRequisito']); 
+    Route::post('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'storeRequisito']);
     Route::post('solicitudes/{solicitud}/requisito/{idTramite}', [SolicitudController::class, 'subirRequisitoDocumento']);
     Route::put('configuracion/numero-cuenta', [SolicitudController::class, 'updateNumeroCuentaGlobal']);
     Route::get('configuracion/numero-cuenta', [SolicitudController::class, 'getNumeroCuentaGlobal']);
