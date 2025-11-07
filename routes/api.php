@@ -3,8 +3,10 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\EstudianteController;
+use App\Http\Controllers\Api\AcademicoController;
 use App\Http\Controllers\Api\TramiteController;
 use App\Http\Controllers\Api\SolicitudController;
+use App\Http\Controllers\Api\AdminController;
 
 Route::middleware(['auth:sanctum'])->get('/user', function (Request $request) {
     return $request->user();
@@ -16,6 +18,8 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::get('/perfil-estudiante', [EstudianteController::class, 'getProfile']);
+    Route::get('/perfil-academico', [AcademicoController::class, 'getProfile']);
+
     Route::get('/tramites', [TramiteController::class, 'index']);
 
     // Rutas de Solicitudes
@@ -36,4 +40,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('solicitudes/{solicitud}/requisito/{idTramite}', [SolicitudController::class, 'subirRequisitoDocumento']);
     Route::put('configuracion/numero-cuenta', [SolicitudController::class, 'updateNumeroCuentaGlobal']);
     Route::get('configuracion/numero-cuenta', [SolicitudController::class, 'getNumeroCuentaGlobal']);
+
+    Route::get('/admin/search-graph-users', [AdminController::class, 'searchGraphUsers']);
+    Route::post('/admin/assign-academico-role', [AdminController::class, 'assignAcademicoRole']);
 });

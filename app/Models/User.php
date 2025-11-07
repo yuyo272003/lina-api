@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use App\Models\Role;
+use App\Models\Academico;
+use App\Models\Estudiante;
 
 class User extends Authenticatable
 {
@@ -38,12 +40,26 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * Un usuario puede ser un estudiante.
+     */
     public function estudiante()
     {
-        return $this->hasOne(\App\Models\Estudiante::class, 'user_id');
+        // Se corrigió la notación de clase para la importación
+        return $this->hasOne(Estudiante::class, 'user_id');
+    }
+    
+    /**
+     * Un usuario puede ser un académico.
+     */
+    public function academico()
+    {
+        return $this->hasOne(Academico::class, 'user_id');
     }
 
-    // --- ¡AÑADE ESTO! ---
+    /**
+     * Relación con los roles del usuario.
+     */
     public function roles()
     {
         return $this->belongsToMany(\App\Models\Role::class, 'role_usuario', 'user_id', 'role_id');
