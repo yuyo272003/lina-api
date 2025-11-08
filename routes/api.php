@@ -28,7 +28,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/solicitudes/{solicitud}', [SolicitudController::class, 'show']);
     Route::get('/solicitudes/{solicitud}/orden-de-pago', [SolicitudController::class, 'downloadOrdenDePago']);
     Route::post('/solicitudes/{solicitud}/comprobante', [SolicitudController::class, 'subirComprobante']);
-    Route::post('/solicitudes/{solicitud}/archivo', [SolicitudController::class, 'subirArchivo']);
+    Route::post('/solicitudes/{solicitud}/subir-archivo', [SolicitudController::class, 'subir']);
+    Route::post('/solicitudes/{solicitud}/completar', [SolicitudController  ::class, 'completar']);
     Route::post('/solicitudes/{solicitud}/validar', [SolicitudController::class, 'validar']);
     Route::patch('/solicitudes/{solicitud}/estado', [SolicitudController::class, 'updateEstado']);
     Route::patch('/solicitudes/{solicitud}/estado-contador', [SolicitudController::class, 'updateEstadoContador']);
