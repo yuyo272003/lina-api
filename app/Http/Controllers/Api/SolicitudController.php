@@ -206,7 +206,6 @@ class SolicitudController extends Controller
         $estados_visibles = [];
         $roles_coordinacion = [5, 6]; // Roles que ven la fase inicial
 
-
         // Lógica de Visibilidad Escalonada para 'En revisión'
         if (in_array($userRole, $roles_coordinacion)) {
             // Coordinadores (Rol 5 y 6) ven todas las fases de revisión
@@ -219,9 +218,9 @@ class SolicitudController extends Controller
             $estados_visibles = ['en revisión 3'];
         }
 
-        // Se mantienen los estados finales visibles para algunos roles administrativos
-        if (in_array($userRole, $this->rolesAdministrativos)) { // Todos los roles administrativos ven "completada"
-            $estados_visibles[] = 'completada';
+        // AGREGAR: Todos los roles administrativos (5, 6, 7, 8) ven las solicitudes 'completada'
+        if (in_array($userRole, $this->rolesAdministrativos)) { 
+            $estados_visibles[] = 'completado';
         }
 
         // Construimos la query base
@@ -242,7 +241,9 @@ class SolicitudController extends Controller
 
         // Lógica de Filtrado por Rol
         if (in_array($userRole, $this->rolesAdministrativos)) {
+            // Roles administrativos (5-8) ven todas las solicitudes en sus fases de revisión, 'completada' y sus propios rechazos.
             $solicitudesQuery->where(function ($query) use ($estados_visibles, $userRole, $roles_coordinacion) {
+                
                 // Mostrar las solicitudes en estados de "revisión" o "completada" según su rol
                 if (!empty($estados_visibles)) {
                     $query->whereIn(DB::raw('LOWER(solicitudes.estado)'), array_filter($estados_visibles, fn($e) => $e !== 'rechazada'));
@@ -265,9 +266,11 @@ class SolicitudController extends Controller
             });
 
         } elseif ($userRole == 3 || $userRole == 4) {
-            // ROL 3 Y 4 (Estudiantes): Solo pueden ver sus propias solicitudes en CUALQUIER estado.
+            // ROL 3 Y 4 (Estudiantes): Solo pueden ver sus propias solicitudes en CUALQUIER estado, incluyendo 'completada'.
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
+
         } else {
+            // Cualquier otro rol ve nada
             $solicitudesQuery->whereRaw('1 = 0');
         }
         $solicitudes = $solicitudesQuery->get();
@@ -305,6 +308,7 @@ class SolicitudController extends Controller
             }
         ]);
 
+        // Cargar las respuestas de requisitos subidos por el alumno
         foreach ($solicitud->tramites as $tramite) {
             $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
                 ->where('tramite_id', $tramite->idTramite)
@@ -312,7 +316,7 @@ class SolicitudController extends Controller
                 ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta', 'requisitos.tipo')
                 ->get();
 
-            // Mapear la respuesta para generar la URL si es un documento
+            // Mapear la respuesta para generar la URL si es un documento (subido por el alumno)
             $tramite->respuestas = $respuestas->map(function ($respuesta) {
                 if ($respuesta->tipo === 'documento' && Storage::disk('public')->exists($respuesta->respuesta)) {
                     $respuesta->url_documento = asset('storage/' . $respuesta->respuesta);
@@ -325,7 +329,7 @@ class SolicitudController extends Controller
             });
         }
 
-        // Buscar comprobante físico
+        // Buscar comprobante físico (si existe)
         $rutaAlmacenada = $solicitud->ruta_comprobante;
         if ($rutaAlmacenada && Storage::disk('public')->exists($rutaAlmacenada)) {
             $solicitud->comprobante = [
@@ -342,6 +346,29 @@ class SolicitudController extends Controller
             $solicitud->rol_rechazo_nombre = $this->mapaRoles[$rolId] ?? 'Rol Desconocido';
         } else {
             $solicitud->rol_rechazo_nombre = null;
+        }
+
+        if (strtolower($solicitud->estado) === 'completado') {
+            foreach ($solicitud->tramites as $tramite) {
+                // La ruta está en la tabla pivote solicitud_tramite (ruta_archivo_final)
+                $rutaFinal = $tramite->pivot->ruta_archivo_final ?? null;
+
+                if ($rutaFinal && Storage::disk('public')->exists($rutaFinal)) {
+                    
+                    // Obtener la extensión del archivo almacenado
+                    $extension = pathinfo(Storage::disk('public')->path($rutaFinal), PATHINFO_EXTENSION);
+                    
+                    // Crear el nombre de archivo legible: NombreTramite.ext
+                    $nombreLegible = $tramite->nombreTramite . '.' . $extension;
+
+                    // Adjuntar al objeto del trámite para el frontend
+                    $tramite->url_archivo_final = asset('storage/' . $rutaFinal);
+                    $tramite->nombre_archivo_final = $nombreLegible;
+                } else {
+                    $tramite->url_archivo_final = null;
+                    $tramite->nombre_archivo_final = null;
+                }
+            }
         }
 
         return response()->json($solicitud);
