@@ -36,6 +36,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/solicitudes/{solicitud}/comprobante', [EstudianteController::class, 'subirComprobante']);
     Route::patch('solicitudes/{solicitud}/cancelar', [EstudianteController::class, 'cancelar']);
     Route::post('solicitudes/{solicitud}/requisito/{idTramite}', [EstudianteController::class, 'subirRequisitoDocumento']); 
+    Route::post('solicitudes/{solicitud}/modificar-respuestas', [EstudianteController::class, 'modificarRespuestas']);
     
     // Coordinador
     Route::patch('/solicitudes/{solicitud}/estado', [CoordinadorController::class, 'updateEstado']);

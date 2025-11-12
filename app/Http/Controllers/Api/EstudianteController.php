@@ -266,4 +266,116 @@ class EstudianteController extends SolicitudController
             'solicitud' => $solicitud
         ], 200);
     }
+
+    /**
+     * 💡 MÉTODO 100% LIMPIO
+     * Permite al estudiante modificar las respuestas de los requisitos
+     * SOLO SI la solicitud fue rechazada por un Coordinador (Rol 5 o 6).
+     *
+     * @param \Illuminate\Http\Request $request
+     * @param \App\Models\Solicitud $solicitud
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function modificarRespuestas(Request $request, Solicitud $solicitud)
+    {
+        // 1. Autorización: ¿El usuario es el dueño de la solicitud?
+        if (Auth::id() !== $solicitud->user_id) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        // 2. Autorización: ¿La solicitud está en el estado correcto?
+        $estadoActual = strtolower($solicitud->estado);
+        $rechazadoPorCoordinador = (
+            $estadoActual === 'rechazada' &&
+            ($solicitud->rol_rechazo == 5 || $solicitud->rol_rechazo == 6)
+        );
+
+        if (!$rechazadoPorCoordinador) {
+            return response()->json([
+                'message' => 'Esta solicitud no puede ser modificada en este momento.'
+            ], 409); // 409 Conflict
+        }
+
+        // 3. Procesamiento de datos
+        $tramitesJson = $request->input('tramites');
+        $tramitesData = json_decode($tramitesJson, true);
+
+        if (empty($tramitesData) || !is_array($tramitesData)) {
+            return response()->json(['error' => 'La estructura de datos de los trámites es inválida.'], 422);
+        }
+
+        // 4. OBTENER REQUISITOS
+        $allRequisitos = Requisito::all()->keyBy('nombreRequisito');
+
+        // 5. ACTUALIZAR LAS RESPUESTAS
+        foreach ($tramitesData as $tramiteData) {
+            if (empty($tramiteData['respuestas'])) continue;
+
+            $tramite_id = $tramiteData['id'];
+
+            foreach ($tramiteData['respuestas'] as $nombreRequisito => $nuevaRespuesta) {
+                $requisito = $allRequisitos[$nombreRequisito] ?? null;
+                if (!$requisito) continue;
+
+                $requisito_id = $requisito->idRequisito;
+
+                // Buscar la respuesta existente
+                $respuestaExistente = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
+                    ->where('tramite_id', $tramite_id)
+                    ->where('requisito_id', $requisito_id)
+                    ->first();
+
+                if (!$respuestaExistente) continue;
+
+                // --- INICIO DE LÓGICA CORRECTA ---
+
+                if ($requisito->tipo === 'documento') {
+                    // 1. Buscar si se subió un archivo *nuevo*
+                    $archivo = $request->file("files.{$tramite_id}.{$nombreRequisito}");
+
+                    // 2. Si SÍ hay un archivo nuevo, lo procesamos
+                    if ($archivo) {
+                        // Validación
+                        if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
+                            continue; // Saltar este archivo si es inválido
+                        }
+                        
+                        // Borrar el archivo anterior si existe
+                        if ($respuestaExistente->respuesta && Storage::disk('public')->exists($respuestaExistente->respuesta)) {
+                            Storage::disk('public')->delete($respuestaExistente->respuesta);
+                        }
+
+                        // Almacenar el nuevo
+                        $nombreArchivo = "{$nombreRequisito}_" . time() . '.' . $archivo->extension();
+                        $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'public');
+                        
+                        // 3. Guardar la NUEVA RUTA en la BD
+                        $respuestaExistente->respuesta = $ruta;
+                        $respuestaExistente->save();
+                    }
+                    // 4. Si NO hay archivo nuevo, no hacemos nada.
+
+                } else {
+                    // Es un requisito de tipo 'dato' (texto)
+                    // Simplemente actualizamos el valor
+                    $respuestaExistente->respuesta = $nuevaRespuesta; // $nuevaRespuesta es el texto del JSON
+                    $respuestaExistente->save();
+                } 
+                
+                // --- FIN DE LÓGICA CORRECTA ---
+            }
+        }
+
+        // 6. Transición de Estado
+        $solicitud->estado = 'en revisión 1';
+        $solicitud->rol_rechazo = null;   // Limpiar el rechazo anterior
+        $solicitud->observaciones = null; // Limpiar las observaciones anteriores
+        $solicitud->save();
+
+        // 7. Respuesta
+        return response()->json([
+            'message' => 'Solicitud actualizada y enviada a revisión con éxito.',
+            'solicitud' => $solicitud->fresh()->load('tramites') // Devolver la solicitud actualizada
+        ], 200);
+    }
 }
