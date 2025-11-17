@@ -21,9 +21,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         return $request->user();
     });
 
-    // Rutas de Perfil
+    // --- Rutas de Perfil y Académico ---
     Route::get('/perfil-estudiante', [EstudianteController::class, 'getProfile']);
     Route::get('/perfil-academico', [AcademicoController::class, 'getProfile']);
+    
+    // NUEVAS RUTAS para que el Académico (Rol 2) solicite rol
+    Route::post('/academico/solicitar-rol', [AcademicoController::class, 'solicitarRol']);
+    Route::get('/academico/estado-rol', [AcademicoController::class, 'getEstadoRol']);
+    
     Route::get('/tramites', [TramiteController::class, 'index']);
 
     // VISTAS GENERALES - SolicitudController
@@ -58,6 +63,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'getRequisitos']);
     Route::post('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'storeRequisito']);
 
-    Route::get('/admin/search-graph-users', [AdminController::class, 'searchGraphUsers']);
-    Route::post('/admin/assign-academico-role', [AdminController::class, 'assignAcademicoRole']);
+    // --- Rutas de Administración de Cuentas ---
+    Route::get('/admin/solicitudes-rol', [AdminController::class, 'getSolicitudesRol']);
+    Route::get('/admin/usuarios-activos', [AdminController::class, 'getUsuariosActivos']);
+    Route::post('/admin/assign-local-role', [AdminController::class, 'assignLocalRole']);
+    Route::post('/admin/remove-admin-role', [AdminController::class, 'removeAdminRole']);
 });

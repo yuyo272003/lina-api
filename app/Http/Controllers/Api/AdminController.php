@@ -4,13 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\Facultad; // Necesario para crear un nuevo Académico
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
-use Microsoft\Graph\GraphServiceClient;
-use Microsoft\Kiota\Authentication\Oauth\ClientCredentialContext; // Usaremos Client Credential Flow
 
 class AdminController extends Controller
 {
@@ -21,246 +18,142 @@ class AdminController extends Controller
     private $rolesPermitidos = [5, 6, 7, 8]; // Roles administrativos
 
     /**
-     * Mapea y limpia los datos de Graph.
+     * Obtiene los usuarios que han solicitado un rol (solicita_rol = true).
      */
-    private function mapUserData(array $userGraphData): array
+    public function getSolicitudesRol(Request $request)
     {
-        // Reutilizamos la lógica de mapeo que ya tienes en LoginController
-        return [
-            'mail' => $userGraphData['mail'] ?? null,
-            'first_name' => $userGraphData['givenName'] ?? ($userGraphData['names'][0]['first'] ?? null),
-            'last_name' => $userGraphData['surname'] ?? ($userGraphData['names'][0]['last'] ?? null),
-            // Nota: Aquí se necesitan los datos completos que obtienes en el callback para createUser
-            'matricula' => $userGraphData['employeeId'] ?? null,
-            'facultad' => $userGraphData['department'] ?? null,
-            'campus' => $userGraphData['streetAddress'] ?? null,
-            'programa_educativo' => $userGraphData['officeLocation'] ?? null,
-        ];
-    }
-    
-    /**
-     * Obtiene el token de autenticación de Client Credentials Flow (App-only token).
-     * Esto requiere que las credenciales de la aplicación tengan el permiso User.Read.All.
-     * @return string
-     */
-    private function getClientCredentialToken(): string
-    {
-        $tenantId = config('azure.authority'); // Esto debería ser el ID del tenant o el nombre del tenant
-        $clientId = config('azure.appId');
-        $clientSecret = config('azure.appSecret');
-        $tokenEndpoint = $tenantId . config('azure.tokenEndpoint');
-        
-        $response = (new \GuzzleHttp\Client())->post($tokenEndpoint, [
-            'form_params' => [
-                'client_id' => $clientId,
-                'scope' => 'https://graph.microsoft.com/.default', // Scope para Client Credentials
-                'client_secret' => $clientSecret,
-                'grant_type' => 'client_credentials',
-            ],
-        ]);
-        
-        $data = json_decode($response->getBody()->getContents(), true);
-        return $data['access_token'];
-    }
-
-    /**
-     * Busca usuarios académicos en Microsoft Graph.
-     * @param \Illuminate\Http\Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
-    public function searchGraphUsers(Request $request)
-    {
-        // Autorización: solo un rol administrativo puede buscar
+        // Autorización (reutiliza la lógica de roles)
         if (!Auth::user()->roles()->whereIn('role_id', $this->rolesPermitidos)->exists()) {
-             return response()->json(['message' => 'No autorizado. Se requiere un rol administrativo.'], 403);
+             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        $search = $request->input('search');
-        if (empty($search) || strlen($search) < 3) {
-            return response()->json(['message' => 'Ingrese al menos 3 caracteres.'], 422);
-        }
+        $usuarios = User::where('solicita_rol', true)
+                        ->whereDoesntHave('roles', function($q) {
+                            // Ocultar si ya tienen un rol admin
+                            // ANTES: $q->whereIn('roles.id', $this->rolesPermitidos);
+                            $q->whereIn('roles.IdRole', $this->rolesPermitidos); // <-- CORREGIDO
+                        })
+                        ->get(['id', 'name', 'email', 'created_at']);
         
-        try {
-            // 1. Obtener Token de la aplicación (Client Credentials Flow)
-            $token = $this->getClientCredentialToken();
-            $httpClient = new \GuzzleHttp\Client();
-
-            // 2. Construir la consulta de búsqueda avanzada en Graph
-            // Buscamos por displayName, mail y userPrincipalName
-            $filter = urlencode("startswith(displayName, '{$search}') or startswith(mail, '{$search}') or startswith(userPrincipalName, '{$search}')");
-
-            $response = $httpClient->get("https://graph.microsoft.com/v1.0/users?\$filter={$filter}&\$select=id,displayName,mail,userPrincipalName", [
-                'headers' => ['Authorization' => 'Bearer ' . $token]
-            ]);
-            
-            $users = json_decode($response->getBody()->getContents(), true)['value'];
-            
-            // Filtramos solo por el dominio UV si es necesario, y mapeamos
-            $academicos = collect($users)->filter(function ($user) {
-                // Asumimos que los académicos NO son estudiantes ni egresados
-                return (
-                    isset($user['mail']) && 
-                    !strpos($user['mail'], '@estudiantes.uv.mx') && 
-                    !strpos($user['mail'], '@egresados.uv.mx')
-                );
-            })->map(function ($user) {
-                return [
-                    'id' => $user['id'],
-                    'displayName' => $user['displayName'] ?? 'N/A',
-                    'mail' => $user['mail'] ?? $user['userPrincipalName'],
-                ];
-            })->values();
-
-            return response()->json($academicos);
-            
-        } catch (\Exception $e) {
-            \Log::error('MS Graph Search Error: ' . $e->getMessage());
-            // Si el error es de permisos, la configuración de la aplicación es incorrecta
-            return response()->json(['message' => 'Error en la búsqueda. Verifique la configuración de permisos (User.Read.All).'], 500);
-        }
+        return response()->json($usuarios);
     }
 
     /**
-     * Asigna un rol administrativo a un usuario (creándolo si no existe en la DB).
-     * @param \Illuminate\Http\Request $request
-     * @return \Illuminate\Http\JsonResponse
+     * Obtiene los usuarios que ya tienen un rol administrativo (5-8).
      */
-    public function assignAcademicoRole(Request $request)
+    public function getUsuariosActivos(Request $request)
     {
-        // 1. Autorización: solo roles administrativos pueden asignar
         if (!Auth::user()->roles()->whereIn('role_id', $this->rolesPermitidos)->exists()) {
-            return response()->json(['message' => 'No autorizado. Se requiere un rol administrativo para asignar roles.'], 403);
+             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        // 2. Validación
+        // Usamos un Join para obtener el nombre del rol
+        $usuarios = DB::table('users')
+            ->join('role_usuario', 'users.id', '=', 'role_usuario.user_id')
+            // ANTES: ->join('roles', 'role_usuario.role_id', '=', 'roles.id')
+            ->join('roles', 'role_usuario.role_id', '=', 'roles.IdRole') // <-- CORREGIDO
+            
+            // ANTES: ->whereIn('roles.id', $this->rolesPermitidos)
+            ->whereIn('roles.IdRole', $this->rolesPermitidos) // <-- CORREGIDO
+            
+            ->select(
+                'users.id', 
+                'users.name', 
+                'users.email', 
+                'roles.NombreRole as nombre_rol', 
+                // ANTES: 'roles.id as role_id'
+                'roles.IdRole as role_id' // <-- CORREGIDO
+            )
+            ->distinct('users.id')
+            ->get();
+            
+        return response()->json($usuarios);
+    }
+
+    /**
+     * Asigna un rol a un usuario existente en la DB local (el que solicitó).
+     */
+    public function assignLocalRole(Request $request)
+    {
+        if (!Auth::user()->roles()->whereIn('role_id', $this->rolesPermitidos)->exists()) {
+             return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
         $request->validate([
-            'email' => 'required|email',
-            'role_id' => [
-                'required', 
-                'integer', 
-                Rule::in($this->rolesPermitidos) // Asegura que solo se asignen roles administrativos
-            ],
+            'user_id' => 'required|integer|exists:users,id',
+            'role_id' => ['required', 'integer', Rule::in($this->rolesPermitidos)],
         ]);
 
-        $email = $request->input('email');
+        $user = User::find($request->input('user_id'));
         $roleId = $request->input('role_id');
-        $user = User::where('email', $email)->first();
-        
-        // --- 3. Lógica de Existencia/Creación de Usuario ---
-        if (!$user) {
-            // Si el usuario NO existe en la DB, ¡DEBEMOS crearlo con datos completos de Graph!
-            try {
-                // Obtenemos el token con Client Credentials
-                $token = $this->getClientCredentialToken();
-                $httpClient = new \GuzzleHttp\Client();
 
-                // 3.1. Obtener datos detallados (similar al callback del LoginController)
-                $responseMe = $httpClient->get("https://graph.microsoft.com/v1.0/users/{$email}", [
-                    'headers' => ['Authorization' => 'Bearer ' . $token],
-                    'query' => ['$select' => 'id,displayName,mail,userPrincipalName,givenName,surname,officeLocation,department'],
-                ]);
-                $userMe = json_decode($responseMe->getBody()->getContents(), true);
-
-                $responseProfile = $httpClient->get("https://graph.microsoft.com/beta/users/{$email}/profile", [
-                    'headers' => ['Authorization' => 'Bearer ' . $token]
-                ]);
-                $userProfile = json_decode($responseProfile->getBody()->getContents(), true);
-
-                // Mapear los datos de Graph. NOTA: Las propiedades de 'profile' no siempre están llenas.
-                $userGraphArray = [
-                    'mail' => $userMe['mail'] ?? null,
-                    'first_name' => $userProfile['names'][0]['first'] ?? $userMe['givenName'] ?? null,
-                    'last_name' => $userProfile['names'][0]['last'] ?? $userMe['surname'] ?? null,
-                    'matricula' => $userProfile['positions'][0]['detail']['employeeId'] ?? null,
-                    'programa_educativo' => $userProfile['positions'][0]['detail']['company']['officeLocation'] ?? $userMe['officeLocation'] ?? null,
-                    'facultad' => $userProfile['positions'][0]['detail']['company']['department'] ?? $userMe['department'] ?? null,
-                    'campus' => $userProfile['positions'][0]['detail']['company']['address']['street'] ?? null,
-                ];
-
-                // Reutilizamos la lógica de createUser, forzando la creación como académico (rol 2) si tiene correo @uv.mx
-                // Ya que estamos asignando un rol administrativo (5-8), el rol inicial de "académico" (2) es implícito
-                $user = $this->createUserAsAcademico($userGraphArray);
-
-                if (!$user) {
-                    return response()->json(['message' => 'Fallo al crear el usuario y su perfil de Académico en la DB.'], 500);
-                }
-
-            } catch (\Exception $e) {
-                \Log::error('MS Graph User Fetch Error: ' . $e->getMessage());
-                return response()->json(['message' => 'No se pudo obtener la información detallada del usuario de Graph para crearlo.'], 500);
-            }
-        }
-        
-        // --- 4. Asignación de Rol Local ---
         try {
             DB::beginTransaction();
 
-            // Desasigna el rol de Académico Genérico (2) y otros roles administrativos (5-8)
+            // Quitar roles administrativos previos (5-8) y el de académico base (2)
             $user->roles()->detach([2, 5, 6, 7, 8]);
             
-            // Asigna el nuevo rol administrativo y el rol base de Académico (2)
-            $user->roles()->attach([2, $roleId]);
+            // Asignar ÚNICAMENTE el nuevo rol administrativo
+            $user->roles()->attach($roleId);
+
+            // Marcar la solicitud como atendida
+            $user->solicita_rol = false;
+            $user->save();
 
             DB::commit();
-            return response()->json([
-                'message' => "Rol {$roleId} asignado correctamente a {$user->name}.",
-                'user_id' => $user->id,
-                'email' => $user->email,
-            ], 200);
+            return response()->json(['message' => "Rol asignado correctamente a {$user->name}."]);
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Error al asignar rol en API: ' . $e->getMessage());
-            return response()->json(['message' => 'Fallo la asignación del rol en la base de datos local.'], 500);
+            \Log::error('Error al asignar rol local: ' . $e->getMessage());
+            return response()->json(['message' => 'Fallo la asignación del rol en la DB.'], 500);
         }
     }
 
     /**
-     * Reutiliza y adapta la lógica de createUser del LoginController para académicos.
+     * Quita un rol administrativo (5-8) a un usuario y lo revierte a Académico (Rol 2).
      */
-    private function createUserAsAcademico($userData)
+    public function removeAdminRole(Request $request)
     {
+        if (!Auth::user()->roles()->whereIn('role_id', $this->rolesPermitidos)->exists()) {
+             return response()->json(['message' => 'No autorizado.'], 403);
+        }
+        
+        $request->validate([
+            'user_id' => 'required|integer|exists:users,id',
+        ]);
+        
+        // --- ¡NUEVA VALIDACIÓN! ---
+        // Compara el ID del usuario autenticado con el ID que se quiere modificar.
+        $authenticatedUserId = Auth::id();
+        $targetUserId = (int)$request->input('user_id');
+
+        if ($authenticatedUserId === $targetUserId) {
+            // Devuelve un error 403 (Forbidden) o 400 (Bad Request)
+            return response()->json(['message' => 'No puedes quitarte el rol a ti mismo.'], 403);
+        }
+        // --- FIN DE LA VALIDACIÓN ---
+
+        $user = User::find($targetUserId); // Usar la variable que ya validamos
+
         try {
             DB::beginTransaction();
 
-            // Lógica de BÚSQUEDA Y CREACIÓN EN CATÁLOGOS (Campus, Facultad)
-            $campus = \App\Models\Campus::firstOrCreate(
-                ['nombreCampus' => capitalizeFirst($userData['campus'] ?? 'Desconocido')]
-            );
+            // Sincroniza los roles del usuario para que tenga ÚNICAMENTE el rol 2.
+            $user->roles()->sync(2);
 
-            $facultad = \App\Models\Facultad::firstOrCreate(
-                ['nombreFacultad' => capitalizeFirst($userData['facultad'] ?? 'Desconocida')],
-                ['idCampus' => $campus->idCampus]
-            );
-
-            // CREACIÓN DEL USUARIO
-            $newUser = User::create([
-                'name' => ($userData['first_name'] ?? '') . ' ' . ($userData['last_name'] ?? ''),
-                'first_name' => $userData['first_name'] ?? '',
-                'last_name' => $userData['last_name'] ?? '',
-                'email' => $userData['mail'],
-                'password' => \Illuminate\Support\Facades\Hash::make(uniqid())
-            ]);
-            
-            $idUsuarioDB = $newUser->id;
-
-            // ASIGNACIÓN DE ROL BASE ACADÉMICO (ID 2)
-            DB::table('role_usuario')->insert(['user_id' => $idUsuarioDB, 'role_id' => 2]);
-            
-            // CREACIÓN DEL REGISTRO DE ACADÉMICO
-            DB::table('academicos')->insert([
-                'user_id' => $idUsuarioDB,
-                'idFacultad' => $facultad->idFacultad,
-                'NoPersonalAcademico' => $userData['matricula'] ?? 'PENDIENTE',
-            ]);
+            // Reseteamos su solicitud
+            $user->solicita_rol = false; 
+            $user->save();
             
             DB::commit();
-            return $newUser;
+            
+            return response()->json(['message' => "Roles administrativos quitados a {$user->name}. Ahora es Académico."]);
 
-        } catch (\Throwable $throwable) {
+        } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Create User DB Error from Admin: ' . $throwable->getMessage());
-            return null;
+            \Log::error('Error al quitar rol: ' . $e->getMessage());
+            return response()->json(['message' => 'Fallo al quitar el rol en la DB.'], 500);
         }
     }
 }
