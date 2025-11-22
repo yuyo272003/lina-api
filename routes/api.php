@@ -68,4 +68,5 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/admin/usuarios-activos', [AdminController::class, 'getUsuariosActivos']);
     Route::post('/admin/assign-local-role', [AdminController::class, 'assignLocalRole']);
     Route::post('/admin/remove-admin-role', [AdminController::class, 'removeAdminRole']);
+    Route::get('/programas-educativos', [AdminController::class, 'getProgramasEducativos']);
 });

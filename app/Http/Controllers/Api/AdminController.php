@@ -81,22 +81,28 @@ class AdminController extends Controller
 
         $request->validate([
             'user_id' => 'required|integer|exists:users,id',
-            'role_id' => ['required', 'integer', Rule::in($this->rolesPermitidos)],
+            'role_id' => ['required', 'integer', Rule::in([5, 6, 7, 8])],
+            'idPE'    => 'nullable|integer|exists:programas_educativos,idPE',
         ]);
 
         $user = User::find($request->input('user_id'));
         $roleId = $request->input('role_id');
+        $idPE = $request->input('idPE');
 
         try {
             DB::beginTransaction();
 
-            // Quitar roles administrativos previos (5-8) y el de académico base (2)
+            // 1. Actualizar Roles
             $user->roles()->detach([2, 5, 6, 7, 8]);
-            
-            // Asignar ÚNICAMENTE el nuevo rol administrativo
             $user->roles()->attach($roleId);
 
-            // Marcar la solicitud como atendida
+            // Actualizar Programa Educativo (Solo si es Rol 6)
+            if ($roleId == 6) {
+                $user->idPE = $idPE; 
+            } else {
+                $user->idPE = null; // Si cambia a Secretario o Contador, no debe tener programa
+            }
+
             $user->solicita_rol = false;
             $user->save();
 
@@ -105,8 +111,8 @@ class AdminController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Error al asignar rol local: ' . $e->getMessage());
-            return response()->json(['message' => 'Fallo la asignación del rol en la DB.'], 500);
+            \Log::error('Error asignando rol: ' . $e->getMessage());
+            return response()->json(['message' => 'Error en el servidor.'], 500);
         }
     }
 
@@ -123,7 +129,6 @@ class AdminController extends Controller
             'user_id' => 'required|integer|exists:users,id',
         ]);
         
-        // --- ¡NUEVA VALIDACIÓN! ---
         // Compara el ID del usuario autenticado con el ID que se quiere modificar.
         $authenticatedUserId = Auth::id();
         $targetUserId = (int)$request->input('user_id');
@@ -132,7 +137,6 @@ class AdminController extends Controller
             // Devuelve un error 403 (Forbidden) o 400 (Bad Request)
             return response()->json(['message' => 'No puedes quitarte el rol a ti mismo.'], 403);
         }
-        // --- FIN DE LA VALIDACIÓN ---
 
         $user = User::find($targetUserId); // Usar la variable que ya validamos
 
@@ -144,6 +148,9 @@ class AdminController extends Controller
 
             // Reseteamos su solicitud
             $user->solicita_rol = false; 
+
+            $user->idPE = null;
+
             $user->save();
             
             DB::commit();
@@ -155,5 +162,11 @@ class AdminController extends Controller
             \Log::error('Error al quitar rol: ' . $e->getMessage());
             return response()->json(['message' => 'Fallo al quitar el rol en la DB.'], 500);
         }
+    }
+
+    public function getProgramasEducativos()
+    {
+        // Retorna lista simple para el Select del Frontend
+        return response()->json(DB::table('programas_educativos')->select('idPE', 'nombrePE')->get());
     }
 }

@@ -105,6 +105,13 @@ class SolicitudController extends Controller
         $solicitudesQuery = DB::table('solicitudes')
             ->leftJoin('solicitud_tramite', 'solicitudes.idSolicitud', '=', 'solicitud_tramite.idSolicitud')
             ->leftJoin('tramites', 'solicitud_tramite.idTramite', '=', 'tramites.idTramite')
+            
+            // --- NUEVOS JOINS PARA ACCEDER AL PROGRAMA EDUCATIVO DEL ESTUDIANTE ---
+            // Unimos solicitud -> user (estudiante) -> tabla estudiantes
+            ->join('users as u_estudiante', 'solicitudes.user_id', '=', 'u_estudiante.id')
+            ->join('estudiantes', 'u_estudiante.id', '=', 'estudiantes.user_id')
+            // ----------------------------------------------------------------------
+
             ->select(
                 'solicitudes.idSolicitud',
                 'solicitudes.folio',
@@ -119,6 +126,12 @@ class SolicitudController extends Controller
 
         // Lógica de Filtrado por Rol
         if (in_array($userRole, $this->rolesAdministrativos)) {
+            
+            // Si es Rol 6 Y tiene un idPE asignado en su tabla users, filtramos.
+            if ($userRole == 6 && !is_null($user->idPE)) {
+                $solicitudesQuery->where('estudiantes.idPE', $user->idPE);
+            }
+
             // Roles administrativos (5-8) ven todas las solicitudes en sus fases de revisión, 'completada' y sus propios rechazos.
             $solicitudesQuery->where(function ($query) use ($estados_visibles, $userRole, $roles_coordinacion) {
                 
