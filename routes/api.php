@@ -52,6 +52,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Secretario
     Route::post('/solicitudes/{solicitud}/subir-archivo', [SecretarioController::class, 'subir']);
     Route::post('/solicitudes/{solicitud}/completar', [SecretarioController::class, 'completar']);
+    Route::post('/solicitudes/{solicitud}/marcar-manual', [SecretarioController::class, 'marcarManual']);
 
     // Configuración
     Route::put('configuracion/numero-cuenta', [ConfiguracionController::class, 'updateNumeroCuentaGlobal']);
@@ -68,4 +69,5 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/admin/usuarios-activos', [AdminController::class, 'getUsuariosActivos']);
     Route::post('/admin/assign-local-role', [AdminController::class, 'assignLocalRole']);
     Route::post('/admin/remove-admin-role', [AdminController::class, 'removeAdminRole']);
+    Route::get('/programas-educativos', [AdminController::class, 'getProgramasEducativos']);
 });

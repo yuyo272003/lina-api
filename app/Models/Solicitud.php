@@ -45,8 +45,8 @@ class Solicitud extends Model
      */
     public function tramites()
     {
-        // Aquí también especificamos las claves por si no siguen la convención
-        return $this->belongsToMany(Tramite::class, 'solicitud_tramite', 'idSolicitud', 'idTramite')->withPivot('id', 'datos_requisitos', 'ruta_archivo_final'); // <-- ¡IMPORTANTE!;
+        return $this->belongsToMany(Tramite::class, 'solicitud_tramite', 'idSolicitud', 'idTramite')
+                ->withPivot('id', 'datos_requisitos', 'ruta_archivo_final', 'completado_manual');
     }
 
     public function user()

@@ -25,6 +25,8 @@ class User extends Authenticatable
         'last_name',
         'email',
         'password',
+        'solicita_rol',
+        'idPE',
     ];
 
     protected $hidden = [
@@ -63,5 +65,13 @@ class User extends Authenticatable
     public function roles()
     {
         return $this->belongsToMany(\App\Models\Role::class, 'role_usuario', 'user_id', 'role_id');
+    }
+
+    /**
+     * Relación: Un usuario (Coordinador) puede tener asignado un Programa Educativo
+     */
+    public function programaEducativo()
+    {
+        return $this->belongsTo(ProgramaEducativo::class, 'idPE', 'idPE');
     }
 }
