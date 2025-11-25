@@ -52,6 +52,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // Secretario
     Route::post('/solicitudes/{solicitud}/subir-archivo', [SecretarioController::class, 'subir']);
     Route::post('/solicitudes/{solicitud}/completar', [SecretarioController::class, 'completar']);
+    Route::post('/solicitudes/{solicitud}/marcar-manual', [SecretarioController::class, 'marcarManual']);
 
     // Configuración
     Route::put('configuracion/numero-cuenta', [ConfiguracionController::class, 'updateNumeroCuentaGlobal']);

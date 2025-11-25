@@ -54,53 +54,61 @@ class SecretarioController extends SolicitudController
 
     public function completar(Request $request, Solicitud $solicitud)
     {
-        // --- 1. CARGAR Y CONTAR ---
-        $solicitud->load('tramites', 'user'); // Carga las relaciones
+        $solicitud->load('tramites', 'user');
 
-        $tramitesCompletados = $solicitud->tramites
-            ->whereNotNull('pivot.ruta_archivo_final')
-            ->count();
+        $tramitesCompletados = $solicitud->tramites->filter(function ($tramite) {
+            return !empty($tramite->pivot->ruta_archivo_final) || $tramite->pivot->completado_manual == 1;
+        })->count();
+
         $tramitesTotales = $solicitud->tramites->count();
-
-        // Verificamos si todos los trámites pedidos ya tienen su archivo
         $todosListos = ($tramitesTotales > 0 && $tramitesTotales === $tramitesCompletados);
+        $faltantes = $tramitesTotales - $tramitesCompletados;
 
-        // --- 2. VALIDAR LÓGICA ---
         if (!$todosListos) {
-            // Si el usuario da clic en "Finalizar" pero faltan archivos
             return response()->json([
-                'message' => "Aún faltan $tramitesFaltantes archivos por subir. No se puede completar.",
+                'message' => "Aún faltan $faltantes trámites por gestionar (subir archivo o marcar completado).",
                 'completados' => $tramitesCompletados,
                 'totales' => $tramitesTotales
-            ], 422); // 422 Unprocessable Content
+            ], 422);
         }
 
-        // --- 3. CAMBIAR ESTADO Y ENVIAR CORREO ---
         if ($solicitud->estado !== 'completado') {
-
             $solicitud->estado = 'completado';
             $solicitud->save();
 
             try {
                 $secretaria = Auth::user();
                 $estudiante = $solicitud->user;
-
                 if ($estudiante && $estudiante->email) {
                     Mail::to($estudiante->email)->send(
                         new SolicitudCompletadaMail($solicitud, $secretaria)
                     );
                 }
             } catch (\Exception $e) {
-                Log::error("❌ Error al enviar correo de solicitud completada: " . $e->getMessage());
-                // NOTA: No devolvemos error, la solicitud SÍ se completó, solo falló el correo.
-                // Esto es una decisión de negocio, podrías querer manejarlo diferente.
+                Log::error("❌ Error mail: " . $e->getMessage());
             }
         }
 
-        // --- 4. RESPUESTA FINAL ---
         return response()->json([
-            'message' => 'Proceso finalizado y solicitud completada con éxito.',
+            'message' => 'Proceso finalizado con éxito.',
             'solicitud' => $solicitud->fresh()->load('tramites'),
         ], 200);
+    }
+
+    public function marcarManual(Request $request, Solicitud $solicitud)
+    {
+        $request->validate([
+            'tramite_id' => 'required|integer'
+        ]);
+        
+        $tramiteId = $request->tramite_id;
+
+        // Actualizamos el pivot: ponemos el flag en true y borramos ruta de archivo si existía
+        $solicitud->tramites()->updateExistingPivot($tramiteId, [
+            'completado_manual' => true,
+            'ruta_archivo_final' => null
+        ]);
+
+        return response()->json(['message' => 'Trámite marcado como completado manualmente.'], 200);
     }
 }
