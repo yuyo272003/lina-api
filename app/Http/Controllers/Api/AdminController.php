@@ -103,6 +103,13 @@ class AdminController extends Controller
                 $user->idPE = null; // Si cambia a Secretario o Contador, no debe tener programa
             }
 
+            // Quitar roles administrativos previos (5-8) y el de académico base (2)
+            $user->roles()->detach([2, 5, 6, 7, 8]);
+            
+            // Asignar ÚNICAMENTE el nuevo rol administrativo
+            $user->roles()->attach($roleId);
+
+            // Marcar la solicitud como atendida
             $user->solicita_rol = false;
             $user->save();
 
@@ -113,6 +120,8 @@ class AdminController extends Controller
             DB::rollBack();
             \Log::error('Error asignando rol: ' . $e->getMessage());
             return response()->json(['message' => 'Error en el servidor.'], 500);
+            \Log::error('Error al asignar rol local: ' . $e->getMessage());
+            return response()->json(['message' => 'Fallo la asignación del rol en la DB.'], 500);
         }
     }
 
@@ -129,6 +138,7 @@ class AdminController extends Controller
             'user_id' => 'required|integer|exists:users,id',
         ]);
         
+        // --- ¡NUEVA VALIDACIÓN! ---
         // Compara el ID del usuario autenticado con el ID que se quiere modificar.
         $authenticatedUserId = Auth::id();
         $targetUserId = (int)$request->input('user_id');
