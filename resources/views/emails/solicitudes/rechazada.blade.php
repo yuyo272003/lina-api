@@ -5,140 +5,48 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Solicitud Rechazada - Sistema LINA</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            background-color: #f3f4f6;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            max-width: 650px;
-            margin: 40px auto;
-            background-color: #ffffff;
-            border-radius: 10px;
-            overflow: hidden;
-            border-left: 6px solid #28AD56; /* verde institucional */
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        }
-        .header {
-            background-color: #ffffff;
-            color: #18529D;
-            text-align: center;
-            padding: 25px 20px 15px;
-            border-bottom: 4px solid #28AD56;
-        }
-        .header img {
-            width: 75px;
-            margin-bottom: 10px;
-        }
-        .header h1 {
-            font-size: 20px;
-            margin: 0;
-            letter-spacing: .4px;
-            color: #18529D;
-        }
-        .content {
-            padding: 30px;
-            color: #222;
-            line-height: 1.6;
-        }
-        .content p {
-            font-size: 15px;
-            margin: 8px 0;
-        }
-        .details {
-            background-color: #f8fafc;
-            border: 1px solid #d1d5db;
-            border-radius: 8px;
-            padding: 15px 20px;
-            margin: 20px 0;
-        }
-        .details p {
-            margin: 4px 0;
-            font-size: 14px;
-        }
-        .motivo {
-            background-color: #fff1f1;
-            border-left: 5px solid #dc2626;
-            padding: 12px 15px;
-            color: #991b1b;
-            font-style: italic;
-            font-size: 14px;
-            margin-bottom: 20px;
-        }
-        .button {
-            display: inline-block;
-            background-color: #28AD56;
-            color: #fff !important;
-            text-decoration: none;
-            padding: 12px 22px;
-            border-radius: 6px;
-            font-weight: 600;
-            font-size: 14px;
-            margin-top: 10px;
-        }
-        .footer {
-            background-color: #f9fafb;
-            text-align: center;
-            padding: 18px 15px;
-            font-size: 13px;
-            color: #000000;
-            border-top: 1px solid #e5e7eb;
-        }
-        .footer a {
-            color: #18529D;
-            text-decoration: none;
-            font-weight: 500;
-        }
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; padding: 20px; }
+        .container { background-color: #ffffff; padding: 20px; border-radius: 8px; max-width: 600px; margin: 0 auto; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        /* Usamos rojo para rechazo (igual que alerta_admin) */
+        .header { background-color: #d9534f; color: white; padding: 10px; text-align: center; border-radius: 8px 8px 0 0; }
+        .content { padding: 20px; color: #333; text-align: center; }
+        /* Caja de alerta roja */
+        .alert-box { background-color: #fce8e6; border-left: 5px solid #d9534f; padding: 15px; margin: 15px 0; text-align: left; }
+        .details { background-color: #f9f9f9; padding: 10px; border-radius: 5px; text-align: left; margin-bottom: 15px; font-size: 14px; }
+        .btn { display: inline-block; padding: 10px 20px; background-color: #0275d8; color: white; text-decoration: none; border-radius: 5px; margin-top: 20px; }
+        .footer { margin-top: 20px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
     </style>
 </head>
 <body>
+    <div class="container">
+        <div class="header">
+            <h2>⛔ Solicitud Rechazada</h2>
+        </div>
+        
+        <div class="content">
+            <p>Estimado/a <strong>{{ $solicitud->user->name ?? 'Estudiante' }}</strong>,</p>
+            <p>Tu solicitud con folio <strong>{{ $solicitud->folio }}</strong> ha sido rechazada por el área contable.</p>
 
-<div class="container">
-    <div class="header">
-        <img src="{{ $message->embed(public_path('images/logoUV.png')) }}" alt="Logo Universidad Veracruzana">
-        <h1>Sistema LINA - Universidad Veracruzana</h1>
-    </div>
+            <div class="alert-box">
+                <strong>Motivo del rechazo:</strong>
+                <p style="margin: 5px 0 0 0; font-style: italic;">"{{ $motivo }}"</p>
+            </div>
 
-    <div class="content">
-        <p>Estimado/a <strong>{{ $solicitud->user->name ?? 'Estudiante' }}</strong>,</p>
+            <div class="details">
+                <p><strong>Revisado por:</strong> {{ $contador->name }}</p>
+                <p><strong>Contacto:</strong> {{ $contador->email }}</p>
+                <p><strong>Fecha:</strong> {{ now()->format('d/m/Y H:i') }}</p>
+            </div>
 
-        <p>
-            Tu solicitud con el folio
-            <strong style="color:#18529D;">{{ $solicitud->folio }}</strong>
-            ha sido <strong style="color:#d00000;">rechazada</strong> por el área contable.
-        </p>
+            <p>Por favor, revisa tu comprobante y vuelve a subir una versión corregida.</p>
 
-        <div class="details">
-            <p><strong>🧾 Detalles del rechazo</strong></p>
-            <p><strong>Revisado por:</strong> {{ $contador->name }} ({{ $contador->email }})</p>
-            <p><strong>Fecha:</strong> {{ now()->format('d/m/Y H:i') }}</p>
+            <a href="http://localhost:5173/login" class="btn">Corregir Solicitud</a>
         </div>
 
-        <div class="motivo">
-            <strong>Motivo:</strong> {{ $motivo }}
+        <div class="footer">
+            <p>Universidad Veracruzana</p>
+            <p>© {{ date('Y') }} Sistema LINA - Todos los derechos reservados</p>
         </div>
-
-        <p>
-            Por favor, revisa tu comprobante y vuelve a subir una versión corregida en el sistema LINA.
-        </p>
-
-        <a href="{{ config('app.frontend_url') . '/mis-solicitudes' }}" class="button">
-            Ir al sistema LINA
-        </a>
     </div>
-
-    <div class="footer">
-        <p>
-            Atentamente,<br>
-            <strong>{{ $contador->name }}</strong><br>
-            Contador del Programa Educativo LINA<br>
-            Universidad Veracruzana
-        </p>
-        <p>© {{ date('Y') }} Sistema LINA - Todos los derechos reservados</p>
-        <p><a href="mailto:{{ config('mail.from.address') }}">Contactar soporte</a></p>
-    </div>
-</div>
-
 </body>
 </html>
