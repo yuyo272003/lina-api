@@ -12,4 +12,9 @@ class Campus extends Model
     protected $table = 'campuses';
     protected $primaryKey = 'idCampus';
     protected $fillable = ['nombreCampus'];
+
+    public function facultades()
+    {
+        return $this->hasMany(Facultad::class, 'idCampus', 'idCampus');
+    }
 }

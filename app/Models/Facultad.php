@@ -12,4 +12,9 @@ class Facultad extends Model
     protected $table = 'facultades';
     protected $primaryKey = 'idFacultad';
     protected $fillable = ['nombreFacultad', 'idCampus'];
+
+    public function campus()
+    {
+        return $this->belongsTo(Campus::class, 'idCampus', 'idCampus');
+    }
 }
