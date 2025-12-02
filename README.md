@@ -99,6 +99,7 @@ Ejecute el script desde la carpeta `lina-api`:
 ```bash
 k6 run tests/performance/prueba_carga.js
 ```
+Si el sistema no reconoce el comando al momento, pruebe con reiniciar el equipo.
 
 ---
 
