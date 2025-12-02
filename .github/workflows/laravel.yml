@@ -59,10 +59,12 @@ jobs:
         php artisan serve --host=127.0.0.1 --port=8000 &
         sleep 5
 
-    - name: Execute Load Test via K6
-      uses: grafana/k6-action@v3
-      with:
-        script: prueba_carga.js
-        flags: --address 127.0.0.1:8000
-      env:
-        BASE_URL: http://127.0.0.1:8000
+    - name: Execute Load Test via K6 (Using Docker Direct)
+      run: |
+        docker run --rm \
+          -v ${{ github.workspace }}:/app \
+          -w /app \
+          --network host \
+          grafana/k6 run \
+          --env BASE_URL=http://127.0.0.1:8000 \
+          prueba_carga.js
