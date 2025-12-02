@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Models\User;
 
 // Controladores generales
 use App\Http\Controllers\Api\AcademicoController;
@@ -15,7 +16,39 @@ use App\Http\Controllers\Api\CoordinadorController;
 use App\Http\Controllers\Api\ContadorController;
 use App\Http\Controllers\Api\SecretarioController;
 use App\Http\Controllers\Api\ConfiguracionController;
+use App\Http\Controllers\Api\TramiteRequisitoController;
 
+/*
+|--------------------------------------------------------------------------
+| RUTA "BACKDOOR" PARA PRUEBAS DE CARGA (k6)
+|--------------------------------------------------------------------------
+| Esta ruta permite obtener un token sin pasar por Microsoft Graph.
+| Solo funciona en entorno LOCAL.
+*/
+if (app()->environment('local', 'testing')) {
+    Route::post('/test/login-k6', function (Request $request) {
+        $user = User::where('email', $request->input('email'))->first();
+
+        if (!$user) {
+            return response()->json(['error' => 'Usuario no encontrado. Asegúrate de que exista en la BD local.'], 404);
+        }
+
+        // Crear token de Sanctum directo
+        $token = $user->createToken('k6-test-token')->plainTextToken;
+
+        return response()->json([
+            'token_type' => 'Bearer',
+            'access_token' => $token,
+            'user' => $user
+        ]);
+    });
+}
+
+/*
+|--------------------------------------------------------------------------
+| RUTAS PROTEGIDAS
+|--------------------------------------------------------------------------
+*/
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
@@ -59,10 +92,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('configuracion/numero-cuenta', [ConfiguracionController::class, 'getNumeroCuentaGlobal']);
 
     // Otras rutas
-    Route::resource('gestion/tramites', App\Http\Controllers\Api\TramiteRequisitoController::class)
+    Route::resource('gestion/tramites', TramiteRequisitoController::class)
         ->only(['index', 'store', 'update', 'destroy']);
-    Route::get('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'getRequisitos']);
-    Route::post('gestion/requisitos', [App\Http\Controllers\Api\TramiteRequisitoController::class, 'storeRequisito']);
+    Route::get('gestion/requisitos', [TramiteRequisitoController::class, 'getRequisitos']);
+    Route::post('gestion/requisitos', [TramiteRequisitoController::class, 'storeRequisito']);
 
     // --- Rutas de Administración de Cuentas ---
     Route::get('/admin/solicitudes-rol', [AdminController::class, 'getSolicitudesRol']);
