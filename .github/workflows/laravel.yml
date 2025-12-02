@@ -62,9 +62,9 @@ jobs:
     - name: Execute Load Test via K6 (Using Docker Direct)
       run: |
         docker run --rm \
-          -v "$GITHUB_WORKSPACE":/app \
-          -w /app \
-          --network host \
-          grafana/k6 run \
-          --env BASE_URL=http://127.0.0.1:8000 \
-          prueba_carga.js
+        -v "$GITHUB_WORKSPACE":/app \
+        -w /app \
+        --network host \
+        grafana/k6 run \
+        --env BASE_URL=http://127.0.0.1:8000 \
+        /app/tests/performance/prueba_carga.js
