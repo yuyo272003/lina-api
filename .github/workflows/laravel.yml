@@ -61,15 +61,10 @@ jobs:
         php artisan serve --host=127.0.0.1 --port=8000 &
         sleep 5 # Espera 5 segundos para asegurar que el servidor esté listo
 
-    - name: Install K6
-      # Utiliza la acción oficial de Grafana para instalar K6
+    - name: Execute Load Test via K6 (Corrected)
       uses: grafana/k6-action@v0.2.0
-
-    - name: Execute Load Test via K6
-      # K6 se ejecuta contra la URL del servidor local
+      with:
+        script: prueba_carga.js 
       env:
         # Pasa la URL de la API como variable de entorno
-        BASE_URL: http://127.0.0.1:8000 
-      run: |
-        k6 run prueba_carga.js
-        # Si la prueba falla (por los umbrales), esta acción terminará con un código de error
+        BASE_URL: http://127.0.0.1:8000
