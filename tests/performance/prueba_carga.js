@@ -16,7 +16,7 @@ export const options = {
 
 // 1. SETUP: Se ejecuta UNA vez al principio para obtener el Token
 export function setup() {
-    const baseUrl = 'http://localhost'; 
+    const baseUrl = __ENV.BASE_URL || 'http://localhost'; 
     
     const payload = JSON.stringify({
         email: 'zs20015694@estudiantes.uv.mx', 
