@@ -4,12 +4,12 @@ import { check, sleep } from 'k6';
 // Configuración de la carga (¡200 USUARIOS!)
 export const options = {
     stages: [
-        { duration: '10s', target: 20 },  // Calentamiento un poco más rápido
-        { duration: '40s', target: 200 }, // Carga PESADA: 200 usuarios golpeando a la vez
-        { duration: '10s', target: 0 },   // Enfriamiento
+        { duration: '10s', target: 20 }, 
+        { duration: '40s', target: 200 }, 
+        { duration: '10s', target: 0 }, 
     ],
     thresholds: {
-        // Relajé un poco el umbral a 2s porque 200 usuarios en local es brutal
+        // Falla si el 95% de las solicitudes duran más de 2000ms (2s)
         http_req_duration: ['p(95)<2000'], 
     },
 };
@@ -43,7 +43,7 @@ export function setup() {
 
 // 2. DEFAULT: Lo que hace cada usuario virtual
 export default function (data) {
-    const baseUrl = 'http://localhost';
+    const baseUrl = __ENV.BASE_URL || 'http://localhost'; 
     
     // Inyectamos el token en la cabecera
     const params = {
@@ -60,6 +60,6 @@ export default function (data) {
         'Status es 200': (r) => r.status === 200,
     });
 
-    // Sleep aleatorio entre 0.5 y 1.5s para que no todos golpeen EXACTAMENTE al mismo milisegundo
+    // Sleep aleatorio
     sleep(Math.random() * 1 + 0.5);
 }

@@ -17,7 +17,7 @@ jobs:
     - name: Setup PHP
       uses: shivammathur/setup-php@v2
       with:
-        php-version: '8.2' # Asegúrate de que esta versión coincida con tu entorno
+        php-version: '8.2'
         extensions: mbstring, dom, fileinfo, sqlite3, pdo_sqlite
         coverage: none
 
@@ -49,22 +49,18 @@ jobs:
     # --- 2. Preparación y Ejecución de Pruebas de Carga (K6) ---
 
     - name: Run Migrations and Seeders for K6
-      # K6 necesita que el entorno esté levantado y poblado para el login
       env:
         DB_CONNECTION: sqlite
         DB_DATABASE: ":memory:"
-      run: php artisan migrate --seed --force # --force es necesario en entornos CI
+      run: php artisan migrate --seed --force
 
     - name: Start Laravel local server (for K6)
-      # Inicia el servidor en el puerto 8000 en segundo plano (&)
       run: |
         php artisan serve --host=127.0.0.1 --port=8000 &
-        sleep 5 # Espera 5 segundos para asegurar que el servidor esté listo
+        sleep 5
 
-    - name: Execute Load Test via K6 (Corrected)
+    - name: Execute Load Test via K6
       uses: grafana/k6-action@v0.2.0
       with:
-        script: prueba_carga.js 
-      env:
-        # Pasa la URL de la API como variable de entorno
-        BASE_URL: http://127.0.0.1:8000
+        filename: prueba_carga.js 
+        flags: --env BASE_URL=http://127.0.0.1:8000
