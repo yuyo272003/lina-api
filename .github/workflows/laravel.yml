@@ -60,7 +60,9 @@ jobs:
         sleep 5
 
     - name: Execute Load Test via K6
-      uses: grafana/k6-action@v0.2.0
+      uses: grafana/k6-action@v3
       with:
-        filename: prueba_carga.js 
-        flags: --env BASE_URL=http://127.0.0.1:8000
+        script: prueba_carga.js
+        flags: --address 127.0.0.1:8000
+      env:
+        BASE_URL: http://127.0.0.1:8000
