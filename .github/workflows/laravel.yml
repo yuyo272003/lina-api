@@ -62,7 +62,7 @@ jobs:
     - name: Execute Load Test via K6 (Using Docker Direct)
       run: |
         docker run --rm \
-          -v ${{ github.workspace }}:/app \
+          -v "$GITHUB_WORKSPACE":/app \
           -w /app \
           --network host \
           grafana/k6 run \
