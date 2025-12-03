@@ -11,8 +11,8 @@ use Illuminate\Validation\Rule;
 
 class TramiteRequisitoController extends Controller
 {
-    // Roles permitidos para esta gestión (debes definir tus roles administrativos)
-    private $rolesPermitidos = [5, 6, 7, 8]; 
+    // Roles permitidos para esta gestión
+    private $rolesPermitidos = [5]; 
 
     private function checkAuthorization()
     {
@@ -58,7 +58,6 @@ class TramiteRequisitoController extends Controller
     }
     
     /**
-     * 🚀 ¡NUEVA FUNCIÓN! Almacena un nuevo requisito.
      * POST /api/gestion/requisitos
      *
      * @param  \Illuminate\Http\Request  $request
@@ -162,10 +161,8 @@ class TramiteRequisitoController extends Controller
     {
         $this->checkAuthorization();
 
-        // ⚠️ Considera implementar Soft Deletes o verificar dependencias (Solicitudes) antes de eliminar.
-        // Aquí se implementa una eliminación directa por simplicidad.
         try {
-            $tramite->requisitos()->detach(); // Opcional, aunque el delete en la tabla principal suele ser suficiente.
+            $tramite->requisitos()->detach();
             $tramite->delete();
             return response()->json(['message' => 'Trámite eliminado con éxito.'], 200);
         } catch (\Exception $e) {

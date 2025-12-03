@@ -96,21 +96,22 @@ class SolicitudController extends Controller
             $estados_visibles = ['en revisión 3'];
         }
 
-        // AGREGAR: Todos los roles administrativos (5, 6, 7, 8) ven las solicitudes 'completada'
+        // Todos los roles administrativos (5, 6, 7, 8) ven las solicitudes 'completada'
         if (in_array($userRole, $this->rolesAdministrativos)) { 
             $estados_visibles[] = 'completado';
         }
 
-        // Construimos la query base
+        $driver = DB::connection()->getDriverName();
+        $groupConcat = $driver === 'sqlite' 
+            ? "GROUP_CONCAT(tramites.nombreTramite, ', ')" 
+            : "GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ')";
+
+        // 5. Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
             ->leftJoin('solicitud_tramite', 'solicitudes.idSolicitud', '=', 'solicitud_tramite.idSolicitud')
             ->leftJoin('tramites', 'solicitud_tramite.idTramite', '=', 'tramites.idTramite')
-            
-            // --- NUEVOS JOINS PARA ACCEDER AL PROGRAMA EDUCATIVO DEL ESTUDIANTE ---
-            // Unimos solicitud -> user (estudiante) -> tabla estudiantes
             ->join('users as u_estudiante', 'solicitudes.user_id', '=', 'u_estudiante.id')
             ->join('estudiantes', 'u_estudiante.id', '=', 'estudiantes.user_id')
-            // ----------------------------------------------------------------------
 
             ->select(
                 'solicitudes.idSolicitud',
@@ -118,13 +119,18 @@ class SolicitudController extends Controller
                 'solicitudes.estado',
                 'solicitudes.created_at',
                 'solicitudes.rol_rechazo',
-                DB::raw("GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ') as tramites_nombres")
+                DB::raw("$groupConcat as tramites_nombres")
             )
-            // Agregamos 'rol_rechazo' al GROUP BY
-            ->groupBy('solicitudes.idSolicitud', 'solicitudes.folio', 'solicitudes.estado', 'solicitudes.created_at', 'solicitudes.rol_rechazo')
+            ->groupBy(
+                'solicitudes.idSolicitud', 
+                'solicitudes.folio', 
+                'solicitudes.estado', 
+                'solicitudes.created_at', 
+                'solicitudes.rol_rechazo'
+            )
             ->orderBy('solicitudes.created_at', 'desc');
 
-        // Lógica de Filtrado por Rol
+        // 6. Lógica de Filtrado por Rol
         if (in_array($userRole, $this->rolesAdministrativos)) {
             
             // Si es Rol 6 Y tiene un idPE asignado en su tabla users, filtramos.
@@ -135,36 +141,38 @@ class SolicitudController extends Controller
             // Roles administrativos (5-8) ven todas las solicitudes en sus fases de revisión, 'completada' y sus propios rechazos.
             $solicitudesQuery->where(function ($query) use ($estados_visibles, $userRole, $roles_coordinacion) {
                 
-                // Mostrar las solicitudes en estados de "revisión" o "completada" según su rol
+                // Mostrar las solicitudes en estados visibles (excepto rechazadas, que se tratan aparte)
                 if (!empty($estados_visibles)) {
                     $query->whereIn(DB::raw('LOWER(solicitudes.estado)'), array_filter($estados_visibles, fn($e) => $e !== 'rechazada'));
                 }
 
-                // Mostrar las solicitudes 'rechazadas' que fueron rechazadas por ESTE rol.
-                // Para Coordinadores (Roles 5 y 6)
+                // Lógica de rechazos
                 if (in_array($userRole, $roles_coordinacion)) {
+                    // Coord ve rechazos hechos por roles 5 o 6
                     $query->orWhere(function ($q) use ($roles_coordinacion) {
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
-                            ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
+                          ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
-                } // Para Contador (Rol 7) y Secretario (Rol 8): ver rechazos solo de su ID de rol
-                elseif (in_array($userRole, [7, 8])) {
+                } elseif (in_array($userRole, [7, 8])) {
+                    // Contadores/Secretarios ven solo SUS rechazos
                     $query->orWhere(function ($q) use ($userRole) {
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
-                            ->where('solicitudes.rol_rechazo', $userRole);
+                          ->where('solicitudes.rol_rechazo', $userRole);
                     });
                 }
             });
 
         } elseif ($userRole == 3 || $userRole == 4) {
-            // ROL 3 Y 4 (Estudiantes): Solo pueden ver sus propias solicitudes en CUALQUIER estado, incluyendo 'completada'.
+            // Estudiantes: Solo ven las suyas (todas)
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
 
         } else {
-            // Cualquier otro rol ve nada
+            // Otros roles no ven nada
             $solicitudesQuery->whereRaw('1 = 0');
         }
+
         $solicitudes = $solicitudesQuery->get();
+        
         return response()->json($solicitudes);
     }
 

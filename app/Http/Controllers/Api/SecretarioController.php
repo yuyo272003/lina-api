@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\SolicitudCompletadaMail;
 use App\Http\Controllers\Api\SolicitudController;
+use Illuminate\Support\Facades\Log;
 
 class SecretarioController extends SolicitudController
 {
