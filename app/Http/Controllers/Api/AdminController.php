@@ -88,7 +88,7 @@ class AdminController extends Controller
         try {
             DB::beginTransaction();
 
-            // Actualizar Roles
+            // 1. Actualizar Roles
             $user->roles()->detach([2, 5, 6, 7, 8]);
             $user->roles()->attach($roleId);
 

@@ -133,12 +133,12 @@ class SolicitudController extends Controller
         // 6. Lógica de Filtrado por Rol
         if (in_array($userRole, $this->rolesAdministrativos)) {
             
-            // Si es Rol 6 (Coordinador PE) Y tiene un idPE asignado, filtramos por PE del estudiante
+            // Si es Rol 6 Y tiene un idPE asignado en su tabla users, filtramos.
             if ($userRole == 6 && !is_null($user->idPE)) {
                 $solicitudesQuery->where('estudiantes.idPE', $user->idPE);
             }
 
-            // Roles administrativos ven: fases correctas, completadas o sus rechazos
+            // Roles administrativos (5-8) ven todas las solicitudes en sus fases de revisión, 'completada' y sus propios rechazos.
             $solicitudesQuery->where(function ($query) use ($estados_visibles, $userRole, $roles_coordinacion) {
                 
                 // Mostrar las solicitudes en estados visibles (excepto rechazadas, que se tratan aparte)
