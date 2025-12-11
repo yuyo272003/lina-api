@@ -9,7 +9,16 @@ class ProgramaEducativo extends Model
 {
     use HasFactory;
 
+    // Configuración explícita de tabla y llave primaria personalizada
     protected $table = 'programas_educativos';
     protected $primaryKey = 'idPE';
-    protected $fillable = ['nombrePE', 'facultad_id'];
+
+    /**
+     * Atributos asignables en masa.
+     * Vincula el programa educativo a una facultad específica mediante 'facultad_id'.
+     */
+    protected $fillable = [
+        'nombrePE', 
+        'facultad_id'
+    ];
 }

@@ -13,7 +13,8 @@ use App\Http\Controllers\Api\SolicitudController;
 class CoordinadorController extends SolicitudController
 {
     /**
-     * Actualiza el estado de una solicitud (Coordinador).
+     * Gestiona la transición de estado en la etapa de Coordinación.
+     * Valida permisos, integridad del flujo de aprobación y notifica rechazos vía correo.
      *
      * @param \Illuminate\Http\Request $request
      * @param \App\Models\Solicitud $solicitud
@@ -21,12 +22,11 @@ class CoordinadorController extends SolicitudController
      */
     public function updateEstado(Request $request, Solicitud $solicitud)
     {
-        // 1. Autorización: Solo usuarios con roles administrativos pueden cambiar el estado.
+        // Verificación de permisos RBAC
         if (!$this->tieneRolAdministrativo(Auth::id())) {
             return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
         }
 
-        // 2. Validación de la solicitud
         $request->validate([
             'estado' => [
                 'required',
@@ -41,41 +41,38 @@ class CoordinadorController extends SolicitudController
             ]
         ]);
 
-        // 3. Lógica de Transición de Estado Específica
         $estadoActual = strtolower($solicitud->estado);
         $nuevoEstado = strtolower($request->estado);
 
-        // Verificamos la transición válida
+        
+
+        // Validación de integridad de flujo: Solo permite avanzar si la etapa previa es 'en revisión 1'
         if ($estadoActual !== 'en revisión 1' && $nuevoEstado !== 'rechazada') {
-            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción de Aceptar/Rechazar en este punto."], 409);
+            return response()->json(['message' => "El estado actual es '{$estadoActual}'. No se puede realizar la acción en este punto."], 409);
         }
 
-        // 4. Actualizar el estado y guardar el rol si se rechaza
+        // Persistencia de estado y metadatos de rechazo
         $solicitud->estado = $nuevoEstado;
 
         if ($nuevoEstado === 'rechazada') {
             $solicitud->observaciones = $request->input('observaciones', null);
             $solicitud->rol_rechazo = $this->obtenerRolAccion();
         } else {
-            // Limpiar observaciones y rol_rechazo si se acepta/avanza
             $solicitud->observaciones = null;
             $solicitud->rol_rechazo = null;
         }
 
         $solicitud->save();
 
-        // Dentro de tu lógica de actualización:
+        // Envío de notificación asíncrona (Mailable)
         if ($nuevoEstado === 'rechazada') {
             try {
-                $coordinador = Auth::user(); // El usuario que realiza la acción
-                $estudiante = $solicitud->user; // Alumno que creó la solicitud
-
+                $estudiante = $solicitud->user;
                 if ($estudiante && $estudiante->email) {
-                    // Enviar correo
                     Mail::to($estudiante->email)->send(
                         new SolicitudRechazadaCoordinadorMail(
                             $solicitud,
-                            $coordinador,
+                            Auth::user(),
                             $request->input('observaciones', 'Sin motivo especificado.')
                         )
                     );
@@ -85,7 +82,6 @@ class CoordinadorController extends SolicitudController
             }
         }
 
-        // 6. Respuesta final
         return response()->json([
             'message' => 'Estado de la solicitud actualizado con éxito.',
             'solicitud' => $solicitud

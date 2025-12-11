@@ -17,11 +17,12 @@ use App\Http\Controllers\Api\SolicitudController;
 
 class EstudianteController extends SolicitudController
 {
-
+    /**
+     * Recupera el perfil académico del estudiante con su programa educativo asociado.
+     */
     public function getProfile()
     {
         $user = Auth::user();
-
         $estudiante = $user->estudiante()->with('programaEducativo')->first();
 
         if (!$estudiante) {
@@ -38,50 +39,46 @@ class EstudianteController extends SolicitudController
     }
 
     /**
-     * Almacena una nueva solicitud junto con la generación de la orden de pago en PDF.
-     * Maneja la subida de archivos (documentos) y datos (texto/número).
-     *
-     * @param \Illuminate\Http\Request $request
-     * @return \Illuminate\Http\Response
+     * Procesa la creación de una solicitud compleja.
+     * 1. Decodifica el payload JSON de trámites.
+     * 2. Calcula costos y valida integridad.
+     * 3. Gestiona la persistencia de respuestas de texto y archivos PDF.
+     * 4. Genera y retorna la Orden de Pago (PDF) en la misma transacción.
+     * * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\Response PDF Stream
      */
     public function store(Request $request)
     {
-        // El array 'tramites' viene como JSON string dentro de FormData
+        
+
+        // Decodificación y validación de estructura JSON dentro de FormData
         $tramitesJson = $request->input('tramites');
         $tramitesData = json_decode($tramitesJson, true);
 
-        // Validación estricta de que los datos de trámites existen y son válidos.
         if (empty($tramitesData) || !is_array($tramitesData)) {
             return response()->json([
                 'error' => 'La estructura de datos de los trámites es inválida o falta.',
-                'details' => [
-                    'tramites_json' => $tramitesJson,
-                    'validation' => 'Fallo al decodificar JSON.'
-                ]
+                'details' => ['tramites_json' => $tramitesJson]
             ], 422);
         }
 
-        // Validación de que al menos un trámite tiene el ID requerido
         $request->merge(['tramites_data' => $tramitesData]);
         $request->validate([
             'tramites_data.*.id' => 'required|integer|exists:tramites,idTramite',
         ]);
 
         $user = Auth::user();
-
-        // Extraemos solo los IDs para las relaciones
         $tramite_ids = collect($tramitesData)->pluck('id')->all();
         $tramites = Tramite::find($tramite_ids);
         $montoTotal = $tramites->sum('costoTramite');
 
         $numeroCuentaDestino = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->value('valor');
 
-        // Si no se encuentra, usar un valor predeterminado o lanzar un error
         if (!$numeroCuentaDestino) {
             return response()->json(['error' => 'No se encontró el número de cuenta bancaria de destino en la configuración.'], 500);
         }
 
-        // CREACIÓN DE SOLICITUD Y ORDEN DE PAGO
+        // Persistencia de Entidades: Solicitud -> Relación Trámites -> Orden de Pago
         $solicitud = Solicitud::create([
             'user_id' => $user->id,
             'folio' => 'SOL-' . now()->format('Ymd') . '-' . Str::random(6),
@@ -95,42 +92,35 @@ class EstudianteController extends SolicitudController
             'numeroCuentaDestino' => $numeroCuentaDestino,
         ]);
 
-        // OBTENER REQUISITOS PARA SABER EL TIPO
+        // Procesamiento iterativo de requisitos (Textos y Archivos)
         $allRequisitos = Requisito::all()->keyBy('nombreRequisito');
 
-        // GUARDAR LAS RESPUESTAS DE LOS REQUISITOS
         foreach ($tramitesData as $tramiteData) {
             if (!empty($tramiteData['respuestas'])) {
                 foreach ($tramiteData['respuestas'] as $nombreRequisito => $respuesta) {
                     $requisito = $allRequisitos[$nombreRequisito] ?? null;
-
                     if (!$requisito) continue;
 
                     $respuestaFinal = $respuesta;
 
-                    // Lógica para documentos
+                    // Manejo de Archivos: Validación MIME y Almacenamiento en disco público
                     if ($requisito->tipo === 'documento') {
-                        // Buscar el archivo subido en la estructura
+                        // El archivo se recupera usando la clave indexada construida en el frontend
                         $archivo = $request->file("files.{$tramiteData['id']}.{$nombreRequisito}");
 
                         if ($archivo) {
-                            // Validación del archivo
                             if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
                                 continue;
                             }
 
-                            // Almacenar el archivo en storage/app/public/documentos/{idSolicitud}
                             $nombreArchivo = "{$nombreRequisito}_" . time() . '.' . $archivo->extension();
                             $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'public');
-
-                            // Guardar la RUTA del archivo en la BD
                             $respuestaFinal = $ruta;
                         } else {
                             continue;
                         }
                     }
 
-                    // Guardar la respuesta (dato de texto o ruta de archivo)
                     SolicitudRespuesta::create([
                         'solicitud_id' => $solicitud->idSolicitud,
                         'tramite_id' => $tramiteData['id'],
@@ -141,7 +131,7 @@ class EstudianteController extends SolicitudController
             }
         }
 
-        // GENERACIÓN DE PDF
+        // Generación de PDF con DomPDF
         $data = [
             'solicitud' => $solicitud,
             'ordenPago' => $ordenPago,
@@ -152,7 +142,6 @@ class EstudianteController extends SolicitudController
         $pdf = Pdf::loadView('pdf.orden_pago', $data);
         $nombreArchivo = 'orden-de-pago-' . $solicitud->folio . '.pdf';
 
-        // DEVOLVER RESPUESTA CON ENCABEZADOS CORRECTOS
         return response($pdf->output(), 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',
@@ -160,52 +149,38 @@ class EstudianteController extends SolicitudController
     }
 
     /**
-     * Permite al estudiante subir el comprobante de pago.
-     *
-     * @param \Illuminate\Http\Request $request
-     * @param \App\Models\Solicitud $solicitud
-     * @return \Illuminate\Http\JsonResponse
+     * Sube el comprobante de pago y gestiona la transición de estados.
+     * Si fue rechazado por Contador -> Regresa a 'en revisión 2'.
+     * En cualquier otro caso -> Avanza a 'en revisión 1'.
      */
     public function subirComprobante(Request $request, Solicitud $solicitud)
     {
-        // Validación
         $request->validate([
             'comprobante' => 'required|file|mimes:pdf|max:10000',
         ]);
 
-        // Lógica para determinar si la solicitud fue rechazada por Contador (Rol 7)
         $rechazadaPorContador = (
             strtolower($solicitud->estado) === 'rechazada' &&
             $solicitud->rol_rechazo == 7
         );
 
-        // Guardar el archivo
         if ($request->hasFile('comprobante')) {
-            // Generar un nombre único para evitar colisiones
             $nombreArchivo = 'comprobante_' . $solicitud->id . '_' . time() . '.' . $request->file('comprobante')->extension();
-
-            // Guardar en 'storage/app/public/comprobantes'
             $ruta = $request->file('comprobante')->storeAs('comprobantes', $nombreArchivo, 'public');
 
-            // Actualizar la base de datos
             $solicitud->ruta_comprobante = $ruta;
 
-            // LÓGICA DE TRANSICIÓN DE ESTADO
+            // Máquina de estados para reingreso al flujo
             if ($rechazadaPorContador) {
-                // Si la rechazo el Contador, al re-subir vuelve a la fase de revisión 2
                 $solicitud->estado = 'en revisión 2';
             } else {
-                // Si estaba en 'en proceso' o rechazada por el coordinador, pasa a 'en revisión 1'
                 $solicitud->estado = 'en revisión 1';
             }
 
-            // Limpiar la información de rechazo anterior
             $solicitud->rol_rechazo = null;
             $solicitud->observaciones = null;
-
             $solicitud->save();
 
-            // Devolver respuesta de éxito
             return response()->json([
                 'message' => 'Comprobante subido con éxito.',
                 'solicitud' => $solicitud
@@ -216,33 +191,29 @@ class EstudianteController extends SolicitudController
     }
 
     /**
-     * Cancela la solicitud. Solo permitido si está en 'en proceso' o 'rechazada'.
-     *
-     * @param \App\Models\Solicitud $solicitud
-     * @return \Illuminate\Http\JsonResponse
+     * Cancela una solicitud activa.
+     * Restricción: Solo permitido en estados 'en proceso' o 'rechazada'.
      */
     public function cancelar(Solicitud $solicitud)
     {
-        //Solo el dueño de la solicitud puede cancelarla.
+        // Validación de propiedad (RBAC Ownership)
         if (Auth::id() !== $solicitud->user_id) {
             return response()->json(['message' => 'No autorizado para cancelar esta solicitud.'], 403);
         }
 
         $estadoActual = strtolower($solicitud->estado);
 
-        // Solo se permite cancelar si el estado es 'en proceso' o 'rechazada'.
         if ($estadoActual !== 'en proceso' && !Str::contains($estadoActual, 'rechazada')) {
             return response()->json([
                 'message' => "La solicitud no se puede cancelar en el estado actual: '{$solicitud->estado}'."
             ], 409);
         }
 
-        // Actualizar el estado a 'cancelada'
         $solicitud->estado = 'cancelada';
         $solicitud->observaciones = 'Cancelada por el usuario.';
         $solicitud->save();
 
-        // Devolver la solicitud actualizada
+        // Recarga de relaciones para actualizar la UI del cliente
         $solicitud->load([
             'tramites',
             'user' => function ($query) {
@@ -250,6 +221,7 @@ class EstudianteController extends SolicitudController
             }
         ]);
 
+        // Mapeo manual de respuestas para el frontend
         foreach ($solicitud->tramites as $tramite) {
             $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
                 ->where('tramite_id', $tramite->idTramite)
@@ -268,19 +240,18 @@ class EstudianteController extends SolicitudController
     }
 
     /**
-     * Permite al estudiante modificar las respuestas de los requisitos
-     *
-     * @param \Illuminate\Http\Request $request
-     * @param \App\Models\Solicitud $solicitud
-     * @return \Illuminate\Http\JsonResponse
+     * Permite la corrección de respuestas (archivos/datos) tras un rechazo por Coordinación.
+     * Implementa lógica de reemplazo de archivos (eliminar viejo -> guardar nuevo).
      */
     public function modificarRespuestas(Request $request, Solicitud $solicitud)
     {
-        // Autorización
+        
+
         if (Auth::id() !== $solicitud->user_id) {
             return response()->json(['message' => 'No autorizado.'], 403);
         }
 
+        // Validación de estado: Solo editable si fue rechazada por roles de Coordinación (5 o 6)
         $estadoActual = strtolower($solicitud->estado);
         $rechazadoPorCoordinador = (
             $estadoActual === 'rechazada' &&
@@ -290,10 +261,9 @@ class EstudianteController extends SolicitudController
         if (!$rechazadoPorCoordinador) {
             return response()->json([
                 'message' => 'Esta solicitud no puede ser modificada en este momento.'
-            ], 409); // 409 Conflict
+            ], 409);
         }
 
-        // Procesamiento de datos
         $tramitesJson = $request->input('tramites');
         $tramitesData = json_decode($tramitesJson, true);
 
@@ -301,10 +271,8 @@ class EstudianteController extends SolicitudController
             return response()->json(['error' => 'La estructura de datos de los trámites es inválida.'], 422);
         }
 
-        // OBTENER REQUISITOS
         $allRequisitos = Requisito::all()->keyBy('nombreRequisito');
 
-        // ACTUALIZAR LAS RESPUESTAS
         foreach ($tramitesData as $tramiteData) {
             if (empty($tramiteData['respuestas'])) continue;
 
@@ -314,58 +282,50 @@ class EstudianteController extends SolicitudController
                 $requisito = $allRequisitos[$nombreRequisito] ?? null;
                 if (!$requisito) continue;
 
-                $requisito_id = $requisito->idRequisito;
-
-                // Buscar la respuesta existente
                 $respuestaExistente = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
                     ->where('tramite_id', $tramite_id)
-                    ->where('requisito_id', $requisito_id)
+                    ->where('requisito_id', $requisito->idRequisito)
                     ->first();
 
                 if (!$respuestaExistente) continue;
 
                 if ($requisito->tipo === 'documento') {
-                    // Buscar si se subió un archivo nuevo
+                    // Procesamiento de reemplazo de archivo
                     $archivo = $request->file("files.{$tramite_id}.{$nombreRequisito}");
 
-                    // Lo procesamos
                     if ($archivo) {
-                        // Validación
                         if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
                             continue;
                         }
                         
-                        // Borrar el archivo anterior si existe
+                        // Limpieza de almacenamiento: Eliminar archivo obsoleto
                         if ($respuestaExistente->respuesta && Storage::disk('public')->exists($respuestaExistente->respuesta)) {
                             Storage::disk('public')->delete($respuestaExistente->respuesta);
                         }
 
-                        // Almacenar el nuevo
                         $nombreArchivo = "{$nombreRequisito}_" . time() . '.' . $archivo->extension();
                         $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'public');
                         
-                        // Guardar la NUEVA RUTA en la BD
                         $respuestaExistente->respuesta = $ruta;
                         $respuestaExistente->save();
                     }
                 } else {
-                    // Es un requisito de tipo dato simplemente actualizamos el valor
+                    // Actualización directa de dato escalar
                     $respuestaExistente->respuesta = $nuevaRespuesta;
                     $respuestaExistente->save();
                 } 
             }
         }
 
-        // Transición de Estado
+        // Reingreso al flujo de revisión
         $solicitud->estado = 'en revisión 1';
         $solicitud->rol_rechazo = null;
         $solicitud->observaciones = null;
         $solicitud->save();
 
-        // Respuesta
         return response()->json([
             'message' => 'Solicitud actualizada y enviada a revisión con éxito.',
-            'solicitud' => $solicitud->fresh()->load('tramites') // Devolver la solicitud actualizada
+            'solicitud' => $solicitud->fresh()->load('tramites')
         ], 200);
     }
 }

@@ -3,35 +3,19 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Mail\SolicitudCompletadaMail;
 use App\Models\Solicitud;
-use App\Models\Tramite;
-use App\Models\Requisito;
 use App\Models\SolicitudRespuesta;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Validation\Rule;
-use App\Models\Configuracion;
-use Illuminate\Support\Facades\Mail;
-use App\Mail\SolicitudRechazadaMail;
-use App\Mail\SolicitudRechazadaCoordinadorMail;
 
 class SolicitudController extends Controller
 {
-    /**
-     * Define los IDs de los roles administrativos/de coordinación.
-     * @var array
-     */
     private $rolesAdministrativos = [5, 6, 7, 8];
 
-    /**
-     * Mapeo de IDs de rol a nombres legibles para el frontend.
-     * @var array
-     */
+    // Mapeo para visualización de roles en frontend
     private $mapaRoles = [
         5 => 'Coordinación',
         6 => 'Coordinación',
@@ -40,7 +24,7 @@ class SolicitudController extends Controller
     ];
 
     /**
-     * Verifica si el usuario autenticado tiene un rol administrativo o de coordinación.
+     * Valida permisos administrativos sobre el usuario actual mediante consulta directa a la tabla pivote.
      * @param int $userId
      * @return bool
      */
@@ -52,11 +36,6 @@ class SolicitudController extends Controller
             ->exists();
     }
 
-    /**
-     * Obtiene el ID del rol administrativo del usuario actual que está realizando la acción.
-     *
-     * @return int|null
-     */
     protected function obtenerRolAccion(): ?int
     {
         return DB::table('role_usuario')
@@ -66,53 +45,44 @@ class SolicitudController extends Controller
     }
 
     /**
-     * Muestra una lista de solicitudes basadas en el rol del usuario autenticado.
-     *
-     * @param \Illuminate\Http\Request $request
-     * @return \Illuminate\Http\JsonResponse
+     * Retorna el listado de solicitudes aplicando filtros de visibilidad basados en el rol del usuario (RBAC).
+     * Implementa lógica escalonada para fases de revisión.
      */
     public function index(Request $request)
     {
         $user = Auth::user();
 
-        // Obtener el role_id del usuario.
         $userRole = DB::table('role_usuario')
             ->where('user_id', $user->id)
             ->value('role_id');
 
-        // Fases 'En revisión'
+        // Configuración de visibilidad por fases del proceso
         $estados_visibles = [];
-        $roles_coordinacion = [5, 6]; // Roles que ven la fase inicial
+        $roles_coordinacion = [5, 6]; 
 
-        // Lógica de Visibilidad Escalonada para 'En revisión'
         if (in_array($userRole, $roles_coordinacion)) {
-            // Coordinadores (Rol 5 y 6) ven todas las fases de revisión
             $estados_visibles = ['en revisión 1', 'en revisión 2', 'en revisión 3'];
         } elseif ($userRole == 7) {
-            // Contador (Rol 7) ve a partir de la FASE 2
             $estados_visibles = ['en revisión 2', 'en revisión 3'];
         } elseif ($userRole == 8) {
-            // Secretario (Rol 8) ve a partir de la FASE 3
             $estados_visibles = ['en revisión 3'];
         }
 
-        // Todos los roles administrativos (5, 6, 7, 8) ven las solicitudes 'completada'
         if (in_array($userRole, $this->rolesAdministrativos)) { 
             $estados_visibles[] = 'completado';
         }
 
+        // Compatibilidad SQL: SQLite vs MySQL
         $driver = DB::connection()->getDriverName();
         $groupConcat = $driver === 'sqlite' 
             ? "GROUP_CONCAT(tramites.nombreTramite, ', ')" 
             : "GROUP_CONCAT(tramites.nombreTramite SEPARATOR ', ')";
 
-        // 5. Construimos la query base
         $solicitudesQuery = DB::table('solicitudes')
             ->leftJoin('solicitud_tramite', 'solicitudes.idSolicitud', '=', 'solicitud_tramite.idSolicitud')
             ->leftJoin('tramites', 'solicitud_tramite.idTramite', '=', 'tramites.idTramite')
             ->join('users as u_estudiante', 'solicitudes.user_id', '=', 'u_estudiante.id')
             ->join('estudiantes', 'u_estudiante.id', '=', 'estudiantes.user_id')
-
             ->select(
                 'solicitudes.idSolicitud',
                 'solicitudes.folio',
@@ -130,31 +100,27 @@ class SolicitudController extends Controller
             )
             ->orderBy('solicitudes.created_at', 'desc');
 
-        // 6. Lógica de Filtrado por Rol
+        // Aplicación de filtros de seguridad
         if (in_array($userRole, $this->rolesAdministrativos)) {
             
-            // Si es Rol 6 (Coordinador PE) Y tiene un idPE asignado, filtramos por PE del estudiante
+            // Filtro específico para Coordinadores de Programa Educativo (Rol 6)
             if ($userRole == 6 && !is_null($user->idPE)) {
                 $solicitudesQuery->where('estudiantes.idPE', $user->idPE);
             }
 
-            // Roles administrativos ven: fases correctas, completadas o sus rechazos
             $solicitudesQuery->where(function ($query) use ($estados_visibles, $userRole, $roles_coordinacion) {
                 
-                // Mostrar las solicitudes en estados visibles (excepto rechazadas, que se tratan aparte)
                 if (!empty($estados_visibles)) {
                     $query->whereIn(DB::raw('LOWER(solicitudes.estado)'), array_filter($estados_visibles, fn($e) => $e !== 'rechazada'));
                 }
 
-                // Lógica de rechazos
+                // Visibilidad de rechazos según jerarquía
                 if (in_array($userRole, $roles_coordinacion)) {
-                    // Coord ve rechazos hechos por roles 5 o 6
                     $query->orWhere(function ($q) use ($roles_coordinacion) {
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
                           ->whereIn('solicitudes.rol_rechazo', $roles_coordinacion);
                     });
                 } elseif (in_array($userRole, [7, 8])) {
-                    // Contadores/Secretarios ven solo SUS rechazos
                     $query->orWhere(function ($q) use ($userRole) {
                         $q->where(DB::raw('LOWER(solicitudes.estado)'), 'rechazada')
                           ->where('solicitudes.rol_rechazo', $userRole);
@@ -163,11 +129,10 @@ class SolicitudController extends Controller
             });
 
         } elseif ($userRole == 3 || $userRole == 4) {
-            // Estudiantes: Solo ven las suyas (todas)
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
 
         } else {
-            // Otros roles no ven nada
+            // Bloqueo total para roles no definidos
             $solicitudesQuery->whereRaw('1 = 0');
         }
 
@@ -177,10 +142,8 @@ class SolicitudController extends Controller
     }
 
     /**
-     * Muestra los detalles de una solicitud específica.
-     *
-     * @param \App\Models\Solicitud $solicitud
-     * @return \Illuminate\Http\JsonResponse
+     * Recupera el detalle completo de una solicitud, incluyendo relaciones anidadas y archivos adjuntos.
+     * Genera URLs temporales para la descarga de documentos.
      */
     public function show(Solicitud $solicitud)
     {
@@ -190,6 +153,7 @@ class SolicitudController extends Controller
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
+        // Carga profunda de relaciones (User -> Estudiante -> Programa Educativo)
         $solicitud->load([
             'tramites',
             'user' => function ($query) {
@@ -207,7 +171,7 @@ class SolicitudController extends Controller
             }
         ]);
 
-        // Cargar las respuestas de requisitos subidos por el alumno
+        // Procesamiento de respuestas y generación de URLs de acceso a archivos
         foreach ($solicitud->tramites as $tramite) {
             $respuestas = SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
                 ->where('tramite_id', $tramite->idTramite)
@@ -215,7 +179,6 @@ class SolicitudController extends Controller
                 ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta', 'requisitos.tipo')
                 ->get();
 
-            // Mapear la respuesta para generar la URL si es un documento (subido por el alumno)
             $tramite->respuestas = $respuestas->map(function ($respuesta) {
                 if ($respuesta->tipo === 'documento' && Storage::disk('public')->exists($respuesta->respuesta)) {
                     $respuesta->url_documento = asset('storage/' . $respuesta->respuesta);
@@ -228,7 +191,6 @@ class SolicitudController extends Controller
             });
         }
 
-        // Buscar comprobante físico (si existe)
         $rutaAlmacenada = $solicitud->ruta_comprobante;
         if ($rutaAlmacenada && Storage::disk('public')->exists($rutaAlmacenada)) {
             $solicitud->comprobante = [
@@ -239,7 +201,6 @@ class SolicitudController extends Controller
             $solicitud->comprobante = null;
         }
 
-        // Exponer el rol que rechazó la solicitud para el estudiante
         if (strtolower($solicitud->estado) === 'rechazada' && $solicitud->rol_rechazo) {
             $rolId = (int)$solicitud->rol_rechazo;
             $solicitud->rol_rechazo_nombre = $this->mapaRoles[$rolId] ?? 'Rol Desconocido';
@@ -249,18 +210,12 @@ class SolicitudController extends Controller
 
         if (strtolower($solicitud->estado) === 'completado') {
             foreach ($solicitud->tramites as $tramite) {
-                // La ruta está en la tabla pivote solicitud_tramite (ruta_archivo_final)
                 $rutaFinal = $tramite->pivot->ruta_archivo_final ?? null;
 
                 if ($rutaFinal && Storage::disk('public')->exists($rutaFinal)) {
-                    
-                    // Obtener la extensión del archivo almacenado
                     $extension = pathinfo(Storage::disk('public')->path($rutaFinal), PATHINFO_EXTENSION);
-                    
-                    // Crear el nombre de archivo legible: NombreTramite.ext
                     $nombreLegible = $tramite->nombreTramite . '.' . $extension;
 
-                    // Adjuntar al objeto del trámite para el frontend
                     $tramite->url_archivo_final = asset('storage/' . $rutaFinal);
                     $tramite->nombre_archivo_final = $nombreLegible;
                 } else {
@@ -274,35 +229,27 @@ class SolicitudController extends Controller
     }
 
     /**
-     * Genera y descarga el PDF de la orden de pago para una solicitud existente.
-     *
-     * @param \App\Models\Solicitud $solicitud
-     * @return \Illuminate\Http\Response
+     * Genera la Orden de Pago en formato PDF utilizando DomPDF.
+     * Retorna el archivo como stream para descarga directa.
      */
     public function downloadOrdenDePago(Solicitud $solicitud)
     {
-        // 1. Verificación de autorización: El usuario debe ser el dueño O tener un rol administrativo
         $esAdminODirectivo = $this->tieneRolAdministrativo(Auth::id());
 
         if (Auth::id() !== $solicitud->user_id && !$esAdminODirectivo) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        // 2. Cargar las relaciones de la solicitud
         $solicitud->load('tramites', 'ordenesPago');
-
-        // 3. Obtener la primera orden de pago asociada
         $ordenPago = $solicitud->ordenesPago->first();
 
         if (!$ordenPago) {
             return response()->json(['message' => 'Orden de pago no encontrada.'], 404);
         }
 
-        // 4. OBTENER EL USUARIO AUTENTICADO DIRECTAMENTE
         $user = Auth::user();
         $user->load('estudiante.programaEducativo');
 
-        // 5. Preparar los datos para la vista del PDF
         $data = [
             'solicitud' => $solicitud,
             'ordenPago' => $ordenPago,
@@ -310,11 +257,9 @@ class SolicitudController extends Controller
             'user' => $user,
         ];
 
-        // 6. Generar el PDF
         $pdf = Pdf::loadView('pdf.orden_pago', $data);
         $nombreArchivo = 'orden-de-pago-' . $solicitud->folio . '.pdf';
 
-        // 7. DEVOLVER RESPUESTA CON ENCABEZADOS CORRECTOS
         return response($pdf->output(), 200, [
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',

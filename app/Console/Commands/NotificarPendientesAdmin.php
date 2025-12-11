@@ -11,81 +11,72 @@ use Illuminate\Database\Eloquent\Builder;
 
 class NotificarPendientesAdmin extends Command
 {
-    /**
-     * El nombre y la firma del comando de consola.
-     */
     protected $signature = 'notificaciones:revisar-pendientes';
+    protected $description = 'Audita el backlog de solicitudes y notifica a los administradores si se superan los umbrales de atención.';
 
     /**
-     * La descripción del comando.
+     * Ejecuta la auditoría de pendientes.
+     * Reglas de negocio (SLA):
+     * 1. Volumen: >= 5 solicitudes en bandeja.
+     * 2. Latencia: > 24 horas sin actualización de estado.
      */
-    protected $description = 'Revisa si los administradores tienen solicitudes acumuladas o atrasadas y envía notificación.';
-
     public function handle()
     {
-        $this->info('Iniciando revisión de pendientes...');
+        $this->info('Iniciando auditoría de SLA...');
 
-        // Obtenemos todos los usuarios que tengan roles 5, 6, 7 u 8
-        $admins = User::whereHas('roles', function ($q) {
-            $q->whereIn('IdRole', [5, 6, 7, 8]);
-        })->with('roles')->get();
+        // Recuperación de usuarios con roles administrativos (5: Coord Gen, 6: Coord PE, 7: Contador, 8: Secretario)
+        $admins = User::whereHas('roles', fn($q) => $q->whereIn('IdRole', [5, 6, 7, 8]))
+                      ->with('roles')
+                      ->get();
 
         foreach ($admins as $admin) {
-            // Obtenemos el ID del rol administrativo principal (tomamos el primero si tuviera varios)
-            $rol = $admin->roles->whereIn('IdRole', [5, 6, 7, 8])->first();
-            
+            $rol = $admin->roles->first(fn($r) => in_array($r->IdRole, [5, 6, 7, 8]));
             if (!$rol) continue;
 
-            $rolId = $rol->IdRole;
-            $nombreRol = $rol->NombreRole ?? 'Administrador';
-
-            // Construimos la consulta base según el Rol
             $query = Solicitud::query();
 
-            // --- LÓGICA DE FILTRADO POR ROL ---
-            if ($rolId == 5) { // Coordinador General
-                $query->where('estado', 'en revisión 1');
+            // Configuración del contexto de consulta según el rol (RBAC)
+            switch ($rol->IdRole) {
+                case 5: // Coordinador General
+                    $query->where('estado', 'en revisión 1');
+                    break;
 
-            } elseif ($rolId == 6) { // Coordinador PE
-                // Ve revisión 1 PERO solo de su Programa Educativo
-                if (!$admin->idPE) continue;
+                case 6: // Coordinador PE (Alcance limitado por Programa Educativo)
+                    if (!$admin->idPE) continue 2; 
+                    $query->where('estado', 'en revisión 1')
+                          ->whereHas('user.estudiante', fn(Builder $q) => $q->where('idPE', $admin->idPE));
+                    break;
 
-                $query->where('estado', 'en revisión 1')
-                      ->whereHas('user.estudiante', function (Builder $q) use ($admin) {
-                          $q->where('idPE', $admin->idPE);
-                      });
+                case 7: // Contador
+                    $query->where('estado', 'en revisión 2');
+                    break;
 
-            } elseif ($rolId == 7) { // Contador
-                $query->where('estado', 'en revisión 2');
-
-            } elseif ($rolId == 8) { // Secretario
-                $query->where('estado', 'en revisión 3');
+                case 8: // Secretario
+                    $query->where('estado', 'en revisión 3');
+                    break;
+                
+                default:
+                    continue 2;
             }
 
-            // Evaluamos las condiciones   
-            // Condición A: Cantidad Total en su bandeja
+            // Cálculo de métricas
             $totalPendientes = (clone $query)->count();
+            $totalAtrasadas = (clone $query)->where('updated_at', '<', now()->subHours(24))->count();
 
-            // Condición B: Tiempo (24hrs sin actualizar estado)
-            $totalAtrasadas = (clone $query)
-                ->where('updated_at', '<', now()->subHours(24))
-                ->count();
-
-            // Disparador: Si tiene 5 o más pendientes O al menos 1 atrasada
+            // Evaluación de disparadores de alerta
             if ($totalPendientes >= 5 || $totalAtrasadas > 0) {
-                
-                $this->info("Enviando alerta a {$admin->email} (Rol: $rolId)");
+                $this->info("Disparando alerta para: {$admin->email} (Rol: {$rol->IdRole})");
 
                 try {
                     Mail::to($admin->email)->send(
-                        new AlertaAdministrativaMail($totalPendientes, $totalAtrasadas, $nombreRol)
+                        new AlertaAdministrativaMail($totalPendientes, $totalAtrasadas, $rol->NombreRole ?? 'Administrador')
                     );
                 } catch (\Exception $e) {
-                    $this->error("Error enviando correo a {$admin->email}: " . $e->getMessage());
+                    $this->error("Fallo en envío SMTP a {$admin->email}: " . $e->getMessage());
                 }
             }
         }
 
-        $this->info('Revisión finalizada.');
+        $this->info('Auditoría finalizada.');
     }
 }

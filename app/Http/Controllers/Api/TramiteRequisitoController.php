@@ -11,9 +11,9 @@ use Illuminate\Validation\Rule;
 
 class TramiteRequisitoController extends Controller
 {
-    // Roles permitidos para esta gestión
     private $rolesPermitidos = [5]; 
 
+    // Verificación manual de permisos RBAC para proteger endpoints de gestión
     private function checkAuthorization()
     {
         $userId = auth()->id();
@@ -28,10 +28,7 @@ class TramiteRequisitoController extends Controller
     }
 
     /**
-     * Obtiene todos los trámites con sus requisitos asociados.
-     * GET /api/gestion/tramites
-     *
-     * @return \Illuminate\Http\JsonResponse
+     * Lista todos los trámites con sus requisitos asociados (Eager Loading).
      */
     public function index()
     {
@@ -43,12 +40,6 @@ class TramiteRequisitoController extends Controller
         return response()->json($tramites);
     }
 
-    /**
-     * Obtiene todos los requisitos disponibles.
-     * GET /api/gestion/requisitos
-     *
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function getRequisitos()
     {
         $this->checkAuthorization();
@@ -58,10 +49,7 @@ class TramiteRequisitoController extends Controller
     }
     
     /**
-     * POST /api/gestion/requisitos
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
+     * Crea un nuevo requisito dinámicamente en el catálogo.
      */
     public function storeRequisito(Request $request) 
     {
@@ -69,13 +57,11 @@ class TramiteRequisitoController extends Controller
 
         $request->validate([
             'nombreRequisito' => 'required|string|max:255|unique:requisitos,nombreRequisito',
-            // El tipo debe ser 'dato' o 'documento', si no hay otras opciones
             'tipo' => ['required', 'string', Rule::in(['dato', 'documento'])], 
         ]);
 
         try {
             $requisito = Requisito::create($request->only(['nombreRequisito', 'tipo']));
-            // Retorna el requisito creado con código 201 (Created)
             return response()->json($requisito, 201); 
         } catch (\Exception $e) {
             return response()->json(['message' => 'Error al crear el requisito.', 'error' => $e->getMessage()], 500);
@@ -83,11 +69,7 @@ class TramiteRequisitoController extends Controller
     }
 
     /**
-     * Almacena un nuevo trámite con sus requisitos.
-     * POST /api/gestion/tramites
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @return \Illuminate\Http\JsonResponse
+     * Crea un trámite completo y asocia requisitos existentes mediante transacción.
      */
     public function store(Request $request)
     {
@@ -114,12 +96,7 @@ class TramiteRequisitoController extends Controller
     }
 
     /**
-     * Actualiza un trámite y sus requisitos asociados.
-     * PUT/PATCH /api/gestion/tramites/{tramite}
-     *
-     * @param  \Illuminate\Http\Request  $request
-     * @param  \App\Models\Tramite  $tramite
-     * @return \Illuminate\Http\JsonResponse
+     * Modifica un trámite existente y sincroniza la relación many-to-many de requisitos.
      */
     public function update(Request $request, Tramite $tramite)
     {
@@ -140,6 +117,7 @@ class TramiteRequisitoController extends Controller
         DB::beginTransaction();
         try {
             $tramite->update($request->only(['nombreTramite', 'costoTramite']));
+            // Sincronización inteligente de la tabla pivote (Elimina deseleccionados, agrega nuevos)
             $tramite->requisitos()->sync($request->requisito_ids);
             
             DB::commit();
@@ -151,11 +129,7 @@ class TramiteRequisitoController extends Controller
     }
 
     /**
-     * Elimina un trámite. La relación se elimina automáticamente por el sync/detach de Laravel.
-     * DELETE /api/gestion/tramites/{tramite}
-     *
-     * @param  \App\Models\Tramite  $tramite
-     * @return \Illuminate\Http\JsonResponse
+     * Elimina un trámite y limpia sus asociaciones en la tabla pivote.
      */
     public function destroy(Tramite $tramite)
     {
