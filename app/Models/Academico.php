@@ -9,17 +9,18 @@ class Academico extends Model
 {
     use HasFactory;
 
-    // Mapeo a la tabla 'academicos'
+    // Definición explícita de la tabla para anular la convención de pluralización
     protected $table = 'academicos';
 
-    // Clave primaria, según la estructura de tu tabla
+    // Sobreescritura de la llave primaria personalizada
     protected $primaryKey = 'idAcademico';
 
-    // Desactivamos los timestamps si tu tabla no los utiliza
+    // Deshabilita la gestión automática de columnas created_at y updated_at
     public $timestamps = false;
 
     /**
-     * Define la relación inversa: Un Académico pertenece a un User.
+     * Relación inversa 1:1 con el modelo User.
+     * Vincula la identidad de acceso con el perfil académico.
      */
     public function user()
     {
@@ -27,8 +28,8 @@ class Academico extends Model
     }
 
     /**
-     * Define la relación: Un Académico pertenece a una Facultad.
-     * Asumimos que la tabla 'academicos' usa 'idFacultad' para relacionarse con 'Facultad'.
+     * Relación N:1 con el modelo Facultad.
+     * Un académico pertenece a una facultad específica mediante 'idFacultad'.
      */
     public function facultad()
     {

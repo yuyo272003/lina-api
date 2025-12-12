@@ -10,14 +10,15 @@ use App\Http\Controllers\Api\SolicitudController;
 class ConfiguracionController extends SolicitudController
 {
     /**
-     * Actualiza el NUMERO_CUENTA_DESTINO GLOBAL en la tabla de configuraciones.
+     * Actualiza el valor de la configuración 'NUMERO_CUENTA_DESTINO'.
+     * Restringido exclusivamente al rol de Coordinación Principal (ID 5).
      *
      * @param \Illuminate\Http\Request $request
      * @return \Illuminate\Http\JsonResponse
      */
     public function updateNumeroCuentaGlobal(Request $request)
     {
-        // 1. Autorización
+        // Autorización basada en Roles (RBAC)
         $rolActual = $this->obtenerRolAccion();
 
         if ($rolActual !== 5) {
@@ -26,12 +27,10 @@ class ConfiguracionController extends SolicitudController
             ], 403);
         }
 
-        // 2. Validación
         $request->validate([
             'numero_cuenta' => 'required|string|min:4|max:50',
         ]);
 
-        // 3. Actualizar la configuración global en la BD
         $configuracion = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->first();
 
         if (!$configuracion) {
@@ -48,14 +47,14 @@ class ConfiguracionController extends SolicitudController
     }
     
     /**
-     * Obtiene el valor del NUMERO_CUENTA_DESTINO GLOBAL de la base de datos.
+     * Recupera el número de cuenta global configurado.
+     * Accesible para cualquier usuario con rol administrativo.
      *
      * @return \Illuminate\Http\JsonResponse
      */
     public function getNumeroCuentaGlobal()
     {
         if (!$this->tieneRolAdministrativo(Auth::id())) {
-            // En este caso, permitiremos que cualquier admin lo vea.
             return response()->json(['message' => 'No autorizado para ver la configuración de la cuenta.'], 403);
         }
 

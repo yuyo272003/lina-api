@@ -19,8 +19,12 @@ return new class extends Migration
             $table->timestamps();
         });
 
+        // Insertar la configuración con el valor por defecto
         DB::table('configuraciones')->insert([
             'clave' => 'NUMERO_CUENTA_DESTINO',
+            'valor' => '123456789012345678',
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
     }
 

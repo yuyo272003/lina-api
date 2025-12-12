@@ -195,8 +195,8 @@ class CoordinadorControllerTest extends TestCase
         ]);
 
         // Debe fallar porque el código valida: if ($estadoActual !== 'en revisión 1' && $nuevoEstado !== 'rechazada')
-        $response->assertStatus(409) // Conflict
-                 ->assertJsonFragment(['message' => "El estado actual es 'en proceso'. No se puede realizar la acción de Aceptar/Rechazar en este punto."]);
+        $response->assertStatus(409)
+         ->assertJsonFragment(['message' => "El estado actual es 'en proceso'. No se puede realizar la acción en este punto."]);
     }
 
     #[Test]

@@ -1,5 +1,7 @@
 <?php
+
 namespace Database\Seeders;
+
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
@@ -7,8 +9,9 @@ class RequisitoSeeder extends Seeder
 {
     public function run(): void
     {
-        // Limpiamos la tabla para evitar duplicados al ejecutar el seeder
+        // Limpiamos la tabla para evitar duplicados
         DB::table('requisitos')->delete();
+        
         DB::table('requisitos')->insert([
             ['idRequisito' => 1, 'nombreRequisito' => 'Nombre', 'tipo' => 'dato'],
             ['idRequisito' => 2, 'nombreRequisito' => 'Matricula', 'tipo' => 'dato'],
@@ -38,6 +41,8 @@ class RequisitoSeeder extends Seeder
             ['idRequisito' => 26, 'nombreRequisito' => 'Indicación de si se desea excluir a un docente que impartió previamente la EE.', 'tipo' => 'dato'],
             ['idRequisito' => 27, 'nombreRequisito' => 'Correo electronico alterno', 'tipo' => 'dato'],
             ['idRequisito' => 28, 'nombreRequisito' => 'Número de contacto', 'tipo' => 'dato'],
+            ['idRequisito' => 29, 'nombreRequisito' => 'Acta de Nacimiento (Escaneada)', 'tipo' => 'documento'],
+            ['idRequisito' => 30, 'nombreRequisito' => 'Certificado de Bachillerato (Escaneado)', 'tipo' => 'documento'],
         ]);
     }
 }

@@ -9,22 +9,21 @@ use Illuminate\Support\Facades\Auth;
 class AcademicoController extends Controller
 {
     /**
-     * Obtiene el perfil del académico autenticado.
+     * Recupera el perfil del académico autenticado cargando relaciones anidadas (Facultad -> Campus)
+     * y retorna la estructura de datos normalizada.
      * @return \Illuminate\Http\JsonResponse
      */
     public function getProfile()
     {
-        // Obtiene el usuario autenticado
         $user = Auth::user();
 
-        // Carga la relación 'academico' del usuario, y dentro de ella, la relación 'facultad'
+        // Eager Loading para optimizar la consulta de relaciones jerárquicas
         $academico = $user->academico()->with('facultad.campus')->first();
 
         if (!$academico) {
             return response()->json(['error' => 'Perfil de académico no encontrado para este usuario.'], 404);
         }
 
-        // Estructura los datos para la respuesta API
         return response()->json([
             'nombre_completo'      => $user->name,
             'numero_personal'      => $academico->NoPersonalAcademico,
@@ -36,13 +35,13 @@ class AcademicoController extends Controller
     }
 
     /**
-     * Marca al usuario autenticado (Académico) como solicitante de rol.
+     * Activa el flag 'solicita_rol' para el usuario actual, permitiendo su gestión por administradores.
+     * Incluye validación de seguridad para restringir la acción al Rol 2 (Académico).
      */
     public function solicitarRol(Request $request)
     {
         $user = Auth::user();
 
-        // Asegurarse de que sea un académico (Rol 2)
         if (!$user->roles()->where('role_id', 2)->exists()) {
             return response()->json(['message' => 'Acción no permitida.'], 403);
         }
@@ -54,7 +53,7 @@ class AcademicoController extends Controller
     }
 
     /**
-     * Obtiene el estado de la solicitud de rol del usuario actual.
+     * Consulta el estado del flag 'solicita_rol' para condicionar el renderizado en el frontend.
      */
     public function getEstadoRol(Request $request)
     {

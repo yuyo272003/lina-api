@@ -9,34 +9,26 @@ class Role extends Model
 {
     use HasFactory;
 
-    /**
-     * La tabla asociada con el modelo.
-     * @var string
-     */
-    protected $table = 'roles'; // Es bueno ser explícito
+    protected $table = 'roles';
 
     /**
-     * La llave primaria para el modelo.
-     * @var string
+     * Sobreescritura de la llave primaria para coincidir con la definición de la tabla.
+     * Default: 'id' -> Configurado: 'IdRole'.
      */
-    protected $primaryKey = 'IdRole'; // <-- ¡ESTE ES EL CAMBIO MÁS IMPORTANTE!
+    protected $primaryKey = 'IdRole';
 
-    /**
-     * Indica si el modelo debe tener timestamps (created_at, updated_at).
-     * @var bool
-     */
-    public $timestamps = false; // Tu tabla tiene las columnas pero no se usan, es mejor desactivarlas.
+    // Deshabilita la gestión automática de timestamps (created_at, updated_at)
+    public $timestamps = false;
     
-    /**
-     * Los atributos que se pueden asignar masivamente.
-     * @var array
-     */
     protected $fillable = [
-        'NombreRole', // Para coincidir con el nombre de tu columna
+        'NombreRole',
     ];
 
-
-    // La relación inversa (opcional, pero buena práctica)
+    /**
+     * Relación N:M con User.
+     * Define la estructura del Control de Acceso Basado en Roles (RBAC) 
+     * a través de la tabla pivote 'role_usuario'.
+     */
     public function users()
     {
         return $this->belongsToMany(User::class, 'role_usuario', 'role_id', 'user_id');

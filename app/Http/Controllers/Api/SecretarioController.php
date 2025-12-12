@@ -14,15 +14,18 @@ use Illuminate\Support\Facades\Log;
 
 class SecretarioController extends SolicitudController
 {
-
+    /**
+     * Sube y asocia un archivo final a un trámite específico dentro de una solicitud.
+     * Almacena en disco público y actualiza la referencia en la tabla pivote.
+     */
     public function subir(Request $request, Solicitud $solicitud)
     {
-        // --- 1. VALIDACIÓN (Solo del archivo) ---
         $data = $request->validate([
             'archivo' => 'required|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10000',
             'tramite_id' => [
                 'required',
                 'integer',
+                // Validación de integridad referencial: El trámite debe pertenecer a la solicitud actual.
                 Rule::exists('solicitud_tramite', 'idTramite')
                     ->where('idSolicitud', $solicitud->idSolicitud)
             ],
@@ -31,7 +34,6 @@ class SecretarioController extends SolicitudController
         $tramiteId = $data['tramite_id'];
         $file = $request->file('archivo');
 
-        // --- 2. GUARDAR EL ARCHIVO ---
         $nombreArchivo = 'sol' . $solicitud->idSolicitud . '_tram' . $tramiteId . '_' . time() . '.' . $file->extension();
         $directorio = 'tramitesEnviados';
 
@@ -41,22 +43,27 @@ class SecretarioController extends SolicitudController
 
         $ruta = $file->storeAs($directorio, $nombreArchivo, 'public');
 
-        // --- 3. ACTUALIZAR LA TABLA PIVOTE ---
+        // Actualización de metadata en la relación Many-to-Many
         $solicitud->tramites()->updateExistingPivot($tramiteId, [
-            'ruta_archivo_final' => $ruta
+            'ruta_archivo_final' => $ruta,
+            'completado_manual' => false // Reset de flag manual por consistencia
         ]);
 
-        // --- 4. RESPUESTA (Simple y rápida) ---
         return response()->json([
             'message' => "Archivo para trámite $tramiteId subido con éxito.",
             'ruta' => $ruta
         ], 200);
     }
 
+    /**
+     * Verifica que todos los trámites estén gestionados (Archivo o Manual) y finaliza la solicitud.
+     * Cambia el estado a 'completado' y notifica al estudiante.
+     */
     public function completar(Request $request, Solicitud $solicitud)
     {
         $solicitud->load('tramites', 'user');
 
+        // Cálculo de progreso basado en condiciones de completitud (Archivo existe OR Flag manual activo)
         $tramitesCompletados = $solicitud->tramites->filter(function ($tramite) {
             return !empty($tramite->pivot->ruta_archivo_final) || $tramite->pivot->completado_manual == 1;
         })->count();
@@ -73,16 +80,16 @@ class SecretarioController extends SolicitudController
             ], 422);
         }
 
+        // Transición de estado y notificación idempotente
         if ($solicitud->estado !== 'completado') {
             $solicitud->estado = 'completado';
             $solicitud->save();
 
             try {
-                $secretaria = Auth::user();
                 $estudiante = $solicitud->user;
                 if ($estudiante && $estudiante->email) {
                     Mail::to($estudiante->email)->send(
-                        new SolicitudCompletadaMail($solicitud, $secretaria)
+                        new SolicitudCompletadaMail($solicitud, Auth::user())
                     );
                 }
             } catch (\Exception $e) {
@@ -96,6 +103,10 @@ class SecretarioController extends SolicitudController
         ], 200);
     }
 
+    /**
+     * Marca un trámite como completado administrativamente sin necesidad de archivo adjunto.
+     * Limpia referencias a archivos previos para mantener consistencia.
+     */
     public function marcarManual(Request $request, Solicitud $solicitud)
     {
         $request->validate([
@@ -104,7 +115,6 @@ class SecretarioController extends SolicitudController
         
         $tramiteId = $request->tramite_id;
 
-        // Actualizamos el pivot: ponemos el flag en true y borramos ruta de archivo si existía
         $solicitud->tramites()->updateExistingPivot($tramiteId, [
             'completado_manual' => true,
             'ruta_archivo_final' => null

@@ -1,5 +1,4 @@
 <?php
-// app/Models/Configuracion.php
 
 namespace App\Models;
 
@@ -12,6 +11,11 @@ class Configuracion extends Model
 
     protected $table = 'configuraciones';
 
+    /**
+     * Atributos asignables en masa.
+     * Utilizado para almacenar configuraciones globales del sistema
+     * Estructura: Clave (Unique Index) -> Valor.
+     */
     protected $fillable = [
         'clave',
         'valor',

@@ -3,14 +3,18 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Tramite; // <-- Asegúrate de importar el modelo
+use App\Models\Tramite;
 use Illuminate\Http\Request;
 
 class TramiteController extends Controller
 {
+    /**
+     * Recupera el catálogo completo de trámites disponibles.
+     * Implementa Eager Loading para incluir la relación 'requisitos' en la misma consulta.
+     * * @return \Illuminate\Database\Eloquent\Collection
+     */
     public function index()
     {
-        // Esta línea es la que devuelve los trámites con sus requisitos
         return Tramite::with('requisitos')->get();
     }
 }

@@ -12,17 +12,18 @@ use Illuminate\Validation\Rule;
 class AdminController extends Controller
 {
     /**
-     * Define los IDs de los roles administrativos/de coordinación.
-     * Solo estos roles (o un super-admin) pueden usar esta función.
+     * Lista blanca de IDs de roles con privilegios administrativos.
+     * 5: Coordinador General, 6: Coordinador PE, 7: Contador, 8: Secretario.
      */
-    private $rolesPermitidos = [5, 6, 7, 8]; // Roles administrativos
+    private $rolesPermitidos = [5, 6, 7, 8];
 
     /**
-     * Obtiene los usuarios que han solicitado un rol (solicita_rol = true).
+     * Recupera usuarios que han solicitado elevación de privilegios.
+     * Excluye usuarios que ya poseen alguno de los roles administrativos.
      */
     public function getSolicitudesRol(Request $request)
     {
-        // Autorización (reutiliza la lógica de roles)
+        // Verificación RBAC (Role-Based Access Control)
         if (!Auth::user()->roles()->whereIn('role_id', $this->rolesPermitidos)->exists()) {
              return response()->json(['message' => 'No autorizado.'], 403);
         }
@@ -38,7 +39,7 @@ class AdminController extends Controller
     }
 
     /**
-     * Obtiene los usuarios que ya tienen un rol administrativo (5-8).
+     * Lista todos los usuarios con roles administrativos activos y sus descripciones.
      */
     public function getUsuariosActivos(Request $request)
     {
@@ -46,7 +47,7 @@ class AdminController extends Controller
              return response()->json(['message' => 'No autorizado.'], 403);
         }
 
-        // Usamos un Join para obtener el nombre del rol
+        // Join explícito para obtener metadatos del rol asociado
         $usuarios = DB::table('users')
             ->join('role_usuario', 'users.id', '=', 'role_usuario.user_id')
             ->join('roles', 'role_usuario.role_id', '=', 'roles.IdRole')
@@ -67,7 +68,8 @@ class AdminController extends Controller
     }
 
     /**
-     * Asigna un rol a un usuario existente en la DB local (el que solicitó).
+     * Procesa la asignación de un rol administrativo.
+     * Gestiona la lógica específica para Coordinadores de PE (ID 6) y limpia roles previos.
      */
     public function assignLocalRole(Request $request)
     {
@@ -88,24 +90,20 @@ class AdminController extends Controller
         try {
             DB::beginTransaction();
 
-            // 1. Actualizar Roles
-            $user->roles()->detach([2, 5, 6, 7, 8]);
-            $user->roles()->attach($roleId);
-
-            // Actualizar Programa Educativo (Solo si es Rol 6)
+            // Regla de negocio: Si es Coordinador PE (6), asignar programa; si no, limpiar campo.
             if ($roleId == 6) {
                 $user->idPE = $idPE; 
             } else {
                 $user->idPE = null;
             }
 
-            // Quitar roles administrativos previos (5-8) y el de académico base (2)
+            // Revocación de roles previos (Académico + Admin) y asignación del nuevo rol
             $user->roles()->detach([2, 5, 6, 7, 8]);
             
             // Asignar el nuevo rol administrativo
             $user->roles()->attach($roleId);
 
-            // Marcar la solicitud como atendida
+            // Cierre de la solicitud
             $user->solicita_rol = false;
             $user->save();
 
@@ -114,15 +112,14 @@ class AdminController extends Controller
 
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Error asignando rol: ' . $e->getMessage());
-            return response()->json(['message' => 'Error en el servidor.'], 500);
-            \Log::error('Error al asignar rol local: ' . $e->getMessage());
-            return response()->json(['message' => 'Fallo la asignación del rol en la DB.'], 500);
+            \Log::error('Error asignando rol local: ' . $e->getMessage());
+            return response()->json(['message' => 'Error en el servidor durante la asignación.'], 500);
         }
     }
 
     /**
-     * Quita un rol administrativo (5-8) a un usuario y lo revierte a Académico (Rol 2).
+     * Revoca privilegios administrativos y revierte al usuario al rol base (Académico).
+     * Incluye protección contra auto-revocación.
      */
     public function removeAdminRole(Request $request)
     {
@@ -139,23 +136,20 @@ class AdminController extends Controller
         $targetUserId = (int)$request->input('user_id');
 
         if ($authenticatedUserId === $targetUserId) {
-            // Devuelve un error 403 (Forbidden) o 400 (Bad Request)
             return response()->json(['message' => 'No puedes quitarte el rol a ti mismo.'], 403);
         }
 
-        $user = User::find($targetUserId); // Usar la variable que ya validamos
+        $user = User::find($targetUserId);
 
         try {
             DB::beginTransaction();
 
-            // Sincroniza los roles del usuario para que tenga ÚNICAMENTE el rol 2.
+            // Reset a Rol Académico (ID 2)
             $user->roles()->sync(2);
 
-            // Reseteamos su solicitud
+            // Limpieza de atributos administrativos
             $user->solicita_rol = false; 
-
             $user->idPE = null;
-
             $user->save();
             
             DB::commit();
@@ -169,9 +163,11 @@ class AdminController extends Controller
         }
     }
 
+    /**
+     * Helper para poblar selectores de UI con Programas Educativos disponibles.
+     */
     public function getProgramasEducativos()
     {
-        // Retorna lista simple para el Select del Frontend
         return response()->json(DB::table('programas_educativos')->select('idPE', 'nombrePE')->get());
     }
 }

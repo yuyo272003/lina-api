@@ -9,31 +9,26 @@ class OrdenPago extends Model
 {
     use HasFactory;
 
-    /**
-     * El nombre de la tabla.
-     */
-    protected $table = 'ordenes_pago'; // <-- CORRECCIÓN 1: Nombre exacto de la tabla
+    // Definición explícita de tabla y llave primaria para anular convenciones de Laravel
+    protected $table = 'ordenes_pago';
+    protected $primaryKey = 'idOrdenPago';
 
     /**
-     * La clave primaria de la tabla.
-     */
-    protected $primaryKey = 'idOrdenPago'; // <-- CORRECCIÓN 2: Nombre de la PK
-
-    /**
-     * Los atributos que se pueden asignar masivamente.
+     * Atributos asignables en masa.
+     * Incluye la clave foránea 'idSolicitud' para permitir la creación vinculada mediante create().
      */
     protected $fillable = [
-        'idSolicitud', // <-- ¡Importante añadir la clave foránea aquí!
+        'idSolicitud',
         'montoTotal',
         'numeroCuentaDestino',
     ];
 
     /**
-     * Una orden de pago pertenece a una solicitud.
+     * Relación inversa N:1 con Solicitud.
+     * Vincula el registro financiero con la petición administrativa.
      */
     public function solicitud()
     {
-        // CORRECCIÓN 3: Especificar la clave foránea en la relación
         return $this->belongsTo(Solicitud::class, 'idSolicitud');
     }
 }

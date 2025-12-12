@@ -13,7 +13,8 @@ use App\Http\Controllers\Api\SolicitudController;
 class ContadorController extends SolicitudController
 {
     /**
-     * Actualiza el estado de una solicitud por parte del contador.
+     * Procesa la transición de estado en la etapa de Contaduría.
+     * Permite avanzar el flujo a "en revisión 3" o rechazar la solicitud, notificando al estudiante.
      *
      * @param \Illuminate\Http\Request $request
      * @param \App\Models\Solicitud $solicitud
@@ -21,12 +22,12 @@ class ContadorController extends SolicitudController
      */
     public function updateEstadoContador(Request $request, Solicitud $solicitud)
     {
-        // 1️⃣ Autorización: Solo usuarios con rol contadora pueden hacer este cambio.
+        // Verificación de permisos RBAC (Role-Based Access Control)
         if (!$this->tieneRolAdministrativo(Auth::id())) {
             return response()->json(['message' => 'No autorizado para cambiar el estado de la solicitud.'], 403);
         }
 
-        // 2️⃣ Validación: solo permitir "en revisión 3" o "rechazada"
+        // Validación de payload: Restricción de estados destino y obligatoriedad de observaciones
         $request->validate([
             'estado' => [
                 'required',
@@ -44,14 +45,14 @@ class ContadorController extends SolicitudController
         $estadoActual = strtolower($solicitud->estado);
         $nuevoEstado = strtolower($request->estado);
 
-        // 3️⃣ Reglas de transición válidas para el contador
+        // Validación de integridad de flujo: Solo permite aprobar si la etapa previa es correcta ('en revisión 2')
         if ($estadoActual !== 'en revisión 2' && $nuevoEstado !== 'rechazada') {
             return response()->json([
                 'message' => "El estado actual es '{$estadoActual}'. No se puede realizar esta acción desde esta etapa."
             ], 409);
         }
 
-        // 4️⃣ Actualizar el estado y guardar el rol si se rechaza
+        // Persistencia del nuevo estado y metadatos de rechazo (si aplica)
         $solicitud->estado = $nuevoEstado;
 
         if ($nuevoEstado === 'rechazada') {
@@ -64,11 +65,11 @@ class ContadorController extends SolicitudController
 
         $solicitud->save();
 
-        // 5️⃣ Si la solicitud fue rechazada, enviar correo al alumno
+        // Disparo de notificación asíncrona al estudiante mediante Mailable
         if ($nuevoEstado === 'rechazada') {
             try {
-                $coordinador = Auth::user(); // Usuario que rechazó
-                $estudiante = $solicitud->user; // Alumno dueño de la solicitud
+                $coordinador = Auth::user();
+                $estudiante = $solicitud->user;
 
                 if ($estudiante && $estudiante->email) {
                     Mail::to($estudiante->email)->send(
@@ -84,7 +85,6 @@ class ContadorController extends SolicitudController
             }
         }
 
-        // 6️⃣ Respuesta final
         return response()->json([
             'message' => 'Estado de la solicitud actualizado con éxito.',
             'solicitud' => $solicitud

@@ -12,6 +12,7 @@ class SolicitudRechazadaCoordinadorMail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    // Propiedades públicas accesibles directamente en la vista Blade/Markdown
     public $solicitud;
     public $coordinador;
     public $motivo;
@@ -23,6 +24,9 @@ class SolicitudRechazadaCoordinadorMail extends Mailable
         $this->motivo = $motivo;
     }
 
+    /**
+     * Configura el sobre del correo y renderiza la plantilla Markdown de rechazo.
+     */
     public function build()
     {
         return $this->subject('Tu solicitud ha sido rechazada')
