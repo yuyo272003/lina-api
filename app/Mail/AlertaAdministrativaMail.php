@@ -20,6 +20,7 @@ class AlertaAdministrativaMail extends Mailable
      * * @param int $conteoPendientes Total de solicitudes en bandeja.
      * @param int $conteoAtrasadas Solicitudes que exceden el tiempo de atención (>24h).
      * @param string $rolNombre Contexto del rol para el mensaje personalizado.
+     * Create a new message instance.
      */
     public function __construct($conteoPendientes, $conteoAtrasadas, $rolNombre)
     {
@@ -30,6 +31,7 @@ class AlertaAdministrativaMail extends Mailable
 
     /**
      * Configura el sobre del correo (Asunto y Vista).
+     * Build the message.
      */
     public function build()
     {

@@ -11,6 +11,7 @@ use Illuminate\Validation\Rule;
 
 class TramiteRequisitoController extends Controller
 {
+    // Roles permitidos para esta gestión
     private $rolesPermitidos = [5]; 
 
     // Verificación manual de permisos RBAC para proteger endpoints de gestión
@@ -49,7 +50,10 @@ class TramiteRequisitoController extends Controller
     }
     
     /**
-     * Crea un nuevo requisito dinámicamente en el catálogo.
+     * POST /api/gestion/requisitos
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
      */
     public function storeRequisito(Request $request) 
     {

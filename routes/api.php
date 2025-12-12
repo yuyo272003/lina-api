@@ -46,6 +46,7 @@ if (app()->environment('local', 'testing')) {
 /*
 |--------------------------------------------------------------------------
 | API ENDPOINTS PROTEGIDOS (Sanctum)
+| RUTAS PROTEGIDAS
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum'])->group(function () {

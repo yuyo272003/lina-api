@@ -30,6 +30,7 @@ class AdminController extends Controller
 
         $usuarios = User::where('solicita_rol', true)
                         ->whereDoesntHave('roles', function($q) {
+                            // Ocultar si ya tienen un rol admin
                             $q->whereIn('roles.IdRole', $this->rolesPermitidos);
                         })
                         ->get(['id', 'name', 'email', 'created_at']);
@@ -50,7 +51,9 @@ class AdminController extends Controller
         $usuarios = DB::table('users')
             ->join('role_usuario', 'users.id', '=', 'role_usuario.user_id')
             ->join('roles', 'role_usuario.role_id', '=', 'roles.IdRole')
+            
             ->whereIn('roles.IdRole', $this->rolesPermitidos)
+            
             ->select(
                 'users.id', 
                 'users.name', 
@@ -96,6 +99,8 @@ class AdminController extends Controller
 
             // Revocación de roles previos (Académico + Admin) y asignación del nuevo rol
             $user->roles()->detach([2, 5, 6, 7, 8]);
+            
+            // Asignar el nuevo rol administrativo
             $user->roles()->attach($roleId);
 
             // Cierre de la solicitud
@@ -126,6 +131,7 @@ class AdminController extends Controller
             'user_id' => 'required|integer|exists:users,id',
         ]);
         
+        // Compara el ID del usuario autenticado con el ID que se quiere modificar.
         $authenticatedUserId = Auth::id();
         $targetUserId = (int)$request->input('user_id');
 
