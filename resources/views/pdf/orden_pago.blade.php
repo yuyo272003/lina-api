@@ -105,7 +105,7 @@
       @foreach($tramites as $tramite)
       <tr>
         <td>{{ $tramite->nombreTramite }}</td>
-        <td>${{ number_format($tramite->costoTramite, 2) }}</td>
+        <td>${{ number_format($tramite->costo_real, 2) }}</td>
       </tr>
       @endforeach
     </tbody>
