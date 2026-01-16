@@ -142,6 +142,7 @@ class EstudianteController extends SolicitudController
         });
         
         // Generación de PDF con los trámites actualizados
+        // Generación de PDF con DomPDF
         $data = [
             'solicitud' => $solicitud,
             'ordenPago' => $ordenPago,
