@@ -70,7 +70,7 @@ class EstudianteController extends SolicitudController
         $user = Auth::user();
         $tramite_ids = collect($tramitesData)->pluck('id')->all();
         $tramites = Tramite::find($tramite_ids);
-        $montoTotal = $tramites->sum('costoTramite');
+        $montoTotal = collect($tramitesData)->sum('costo');
 
         $numeroCuentaDestino = Configuracion::where('clave', 'NUMERO_CUENTA_DESTINO')->value('valor');
 
@@ -131,11 +131,22 @@ class EstudianteController extends SolicitudController
             }
         }
 
+        // Mapeamos los trámites para asignarles el costo que calculamos/recibimos
+        $tramitesConCostoFijo = $tramites->map(function ($tramite) use ($tramitesData) {
+            // Buscamos en los datos enviados desde el frontend el costo de este trámite específico
+            $datosFrontend = collect($tramitesData)->firstWhere('id', $tramite->idTramite);
+    
+            // Agregamos una propiedad dinámica "costo_real" al objeto
+            $tramite->costo_real = $datosFrontend['costo'] ?? $tramite->costoTramite;
+            return $tramite;
+        });
+        
+        // Generación de PDF con los trámites actualizados
         // Generación de PDF con DomPDF
         $data = [
             'solicitud' => $solicitud,
             'ordenPago' => $ordenPago,
-            'tramites' => $tramites,
+            'tramites' => $tramitesConCostoFijo, // <--- Pasamos la nueva colección
             'user' => $user->load('estudiante.programaEducativo'),
         ];
 

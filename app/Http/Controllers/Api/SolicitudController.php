@@ -141,13 +141,11 @@ class SolicitudController extends Controller
             // Estudiantes: Solo ven las suyas (todas)
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
 
-        } else {
-            // Otros roles no ven nada
-            $solicitudesQuery->whereRaw('1 = 0');
+        } else { 
+            $solicitudesQuery->where('solicitudes.user_id', $user->id);
         }
 
         $solicitudes = $solicitudesQuery->get();
-        
         return response()->json($solicitudes);
     }
 
