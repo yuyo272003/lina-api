@@ -136,18 +136,11 @@ class SolicitudController extends Controller
         } elseif ($userRole == 3 || $userRole == 4) {
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
 
-        } else {
-            // Bloqueo total para roles no definidos
-            // Estudiantes: Solo ven las suyas (todas)
+        } else { 
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
-
-        } else {
-            // Otros roles no ven nada
-            $solicitudesQuery->whereRaw('1 = 0');
         }
 
         $solicitudes = $solicitudesQuery->get();
-        
         return response()->json($solicitudes);
     }
 
