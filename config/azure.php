@@ -10,4 +10,5 @@ return [
     'authorizeEndpoint' => env('OAUTH_AUTHORIZE_ENDPOINT'),
     'tokenEndpoint'     => env('OAUTH_TOKEN_ENDPOINT'),
     'tenantId'          => env('OAUTH_TENANT_ID'),
+    'frontendUrl'       => env('FRONTEND_URL', 'http://localhost:5173'),
 ];

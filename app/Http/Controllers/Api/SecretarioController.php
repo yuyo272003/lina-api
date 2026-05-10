@@ -20,6 +20,11 @@ class SecretarioController extends SolicitudController
      */
     public function subir(Request $request, Solicitud $solicitud)
     {
+        // Validar que la solicitud esté en la fase correcta para secretaría
+        if (strtolower($solicitud->estado) !== 'en revisión 3') {
+            return response()->json(['message' => 'La solicitud no está en fase de secretaría (en revisión 3).'], 403);
+        }
+
         $data = $request->validate([
             'archivo' => 'required|file|mimes:pdf,doc,docx,jpg,jpeg,png|max:10000',
             'tramite_id' => [
@@ -37,11 +42,7 @@ class SecretarioController extends SolicitudController
         $nombreArchivo = 'sol' . $solicitud->idSolicitud . '_tram' . $tramiteId . '_' . time() . '.' . $file->extension();
         $directorio = 'tramitesEnviados';
 
-        if (!Storage::disk('public')->exists($directorio)) {
-            Storage::disk('public')->makeDirectory($directorio);
-        }
-
-        $ruta = $file->storeAs($directorio, $nombreArchivo, 'public');
+        $ruta = $file->storeAs($directorio, $nombreArchivo, 'local');
 
         // Actualización de metadata en la relación Many-to-Many
         $solicitud->tramites()->updateExistingPivot($tramiteId, [

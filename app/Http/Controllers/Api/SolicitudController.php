@@ -133,15 +133,7 @@ class SolicitudController extends Controller
                 }
             });
 
-        } elseif ($userRole == 3 || $userRole == 4) {
-            $solicitudesQuery->where('solicitudes.user_id', $user->id);
-
         } else {
-            // Bloqueo total para roles no definidos
-            // Estudiantes: Solo ven las suyas (todas)
-            $solicitudesQuery->where('solicitudes.user_id', $user->id);
-
-        } else { 
             $solicitudesQuery->where('solicitudes.user_id', $user->id);
         }
 
@@ -187,9 +179,9 @@ class SolicitudController extends Controller
                 ->select('requisitos.nombreRequisito', 'solicitud_respuestas.respuesta', 'requisitos.tipo')
                 ->get();
 
-            $tramite->respuestas = $respuestas->map(function ($respuesta) {
-                if ($respuesta->tipo === 'documento' && Storage::disk('public')->exists($respuesta->respuesta)) {
-                    $respuesta->url_documento = asset('storage/' . $respuesta->respuesta);
+            $tramite->respuestas = $respuestas->map(function ($respuesta) use ($solicitud) {
+                if ($respuesta->tipo === 'documento' && $respuesta->respuesta && Storage::disk('local')->exists($respuesta->respuesta)) {
+                    $respuesta->url_documento = url("/api/solicitudes/{$solicitud->idSolicitud}/archivo?ruta=" . urlencode($respuesta->respuesta));
                     $respuesta->nombre_archivo = basename($respuesta->respuesta);
                 } else {
                     $respuesta->url_documento = null;
@@ -200,10 +192,10 @@ class SolicitudController extends Controller
         }
 
         $rutaAlmacenada = $solicitud->ruta_comprobante;
-        if ($rutaAlmacenada && Storage::disk('public')->exists($rutaAlmacenada)) {
+        if ($rutaAlmacenada && Storage::disk('local')->exists($rutaAlmacenada)) {
             $solicitud->comprobante = [
                 'nombreArchivo' => basename($rutaAlmacenada),
-                'url' => asset('storage/' . $rutaAlmacenada),
+                'url' => url("/api/solicitudes/{$solicitud->idSolicitud}/archivo?ruta=" . urlencode($rutaAlmacenada)),
             ];
         } else {
             $solicitud->comprobante = null;
@@ -220,11 +212,11 @@ class SolicitudController extends Controller
             foreach ($solicitud->tramites as $tramite) {
                 $rutaFinal = $tramite->pivot->ruta_archivo_final ?? null;
 
-                if ($rutaFinal && Storage::disk('public')->exists($rutaFinal)) {
-                    $extension = pathinfo(Storage::disk('public')->path($rutaFinal), PATHINFO_EXTENSION);
+                if ($rutaFinal && Storage::disk('local')->exists($rutaFinal)) {
+                    $extension = pathinfo($rutaFinal, PATHINFO_EXTENSION);
                     $nombreLegible = $tramite->nombreTramite . '.' . $extension;
 
-                    $tramite->url_archivo_final = asset('storage/' . $rutaFinal);
+                    $tramite->url_archivo_final = url("/api/solicitudes/{$solicitud->idSolicitud}/archivo?ruta=" . urlencode($rutaFinal));
                     $tramite->nombre_archivo_final = $nombreLegible;
                 } else {
                     $tramite->url_archivo_final = null;
@@ -272,5 +264,56 @@ class SolicitudController extends Controller
             'Content-Type' => 'application/pdf',
             'Content-Disposition' => 'attachment; filename="' . $nombreArchivo . '"',
         ]);
+    }
+
+    /**
+     * Descarga un archivo privado asociado a una solicitud con validación de acceso.
+     * El parámetro 'ruta' se valida contra registros reales en BD para prevenir path traversal.
+     */
+    public function downloadArchivo(Request $request, Solicitud $solicitud)
+    {
+        $esAdmin = $this->tieneRolAdministrativo(Auth::id());
+
+        if (Auth::id() !== $solicitud->user_id && !$esAdmin) {
+            return response()->json(['message' => 'No autorizado.'], 403);
+        }
+
+        $ruta = $request->input('ruta');
+        if (!$ruta) {
+            return response()->json(['message' => 'Parámetro ruta requerido.'], 422);
+        }
+
+        // Validar que la ruta pertenece a esta solicitud (previene path traversal)
+        $rutasValidas = collect();
+
+        // Rutas de documentos de requisitos
+        $rutasValidas = $rutasValidas->merge(
+            SolicitudRespuesta::where('solicitud_id', $solicitud->idSolicitud)
+                ->whereNotNull('respuesta')
+                ->pluck('respuesta')
+        );
+
+        // Ruta del comprobante
+        if ($solicitud->ruta_comprobante) {
+            $rutasValidas->push($solicitud->ruta_comprobante);
+        }
+
+        // Rutas de archivos finales (secretaria)
+        $solicitud->loadMissing('tramites');
+        foreach ($solicitud->tramites as $tramite) {
+            if ($tramite->pivot->ruta_archivo_final) {
+                $rutasValidas->push($tramite->pivot->ruta_archivo_final);
+            }
+        }
+
+        if (!$rutasValidas->contains($ruta)) {
+            return response()->json(['message' => 'Archivo no encontrado o acceso denegado.'], 403);
+        }
+
+        if (!Storage::disk('local')->exists($ruta)) {
+            return response()->json(['message' => 'Archivo no encontrado en el servidor.'], 404);
+        }
+
+        return Storage::disk('local')->download($ruta, basename($ruta));
     }
 }

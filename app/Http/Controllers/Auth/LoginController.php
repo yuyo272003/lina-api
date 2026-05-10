@@ -120,7 +120,7 @@ class LoginController extends Controller
         $providedState = $request->query('state');
         
         if (!isset($expectedState) || !isset($providedState) || $expectedState != $providedState) {
-            return redirect('http://localhost:5173/login?error=Invalid+state');
+            return redirect(config('azure.frontendUrl') . '/login?error=Invalid+state');
         }
 
         $authCode = $request->query('code');
@@ -176,20 +176,20 @@ class LoginController extends Controller
                 }
 
                 if (!$user) {
-                    return redirect('http://localhost:5173/login?error=User+creation+failed+in+DB');
+                    return redirect(config('azure.frontendUrl') . '/login?error=User+creation+failed+in+DB');
                 }
 
                 Auth::login($user);
-                return redirect('http://localhost:5173/dashboard');
+                return redirect(config('azure.frontendUrl') . '/dashboard');
 
             } catch (\Exception $e) {
-                \Log::error('MS Graph Callback Error: ' . $e->getMessage() . ' en ' . $e->getFile() . ':' . $e->getLine());
-                return redirect('http://localhost:5173/login?error=Authentication+failed&errorDetail=' . urlencode('Error processing user data from Graph. Check logs.'));
+                \Log::error('MS Graph Callback Error: ' . $e->getMessage());
+                return redirect(config('azure.frontendUrl') . '/login?error=Authentication+failed');
             }
         }
-        
+
         $error = $request->query('error_description') ?? $request->query('error');
-        return redirect('http://localhost:5173/login?error=' . urlencode($error));
+        return redirect(config('azure.frontendUrl') . '/login?error=' . urlencode($error));
     }
 
     /**

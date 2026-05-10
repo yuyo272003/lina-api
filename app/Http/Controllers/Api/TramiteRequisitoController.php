@@ -66,9 +66,10 @@ class TramiteRequisitoController extends Controller
 
         try {
             $requisito = Requisito::create($request->only(['nombreRequisito', 'tipo']));
-            return response()->json($requisito, 201); 
+            return response()->json($requisito, 201);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Error al crear el requisito.', 'error' => $e->getMessage()], 500);
+            \Log::error('Error al crear requisito: ' . $e->getMessage());
+            return response()->json(['message' => 'Error interno al crear el requisito.'], 500);
         }
     }
 
@@ -95,7 +96,8 @@ class TramiteRequisitoController extends Controller
             return response()->json($tramite->load('requisitos:idRequisito,nombreRequisito'), 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Error al crear el trámite.', 'error' => $e->getMessage()], 500);
+            \Log::error('Error al crear trámite: ' . $e->getMessage());
+            return response()->json(['message' => 'Error interno al crear el trámite.'], 500);
         }
     }
 
@@ -128,7 +130,8 @@ class TramiteRequisitoController extends Controller
             return response()->json($tramite->load('requisitos:idRequisito,nombreRequisito'), 200);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Error al actualizar el trámite.', 'error' => $e->getMessage()], 500);
+            \Log::error('Error al actualizar trámite: ' . $e->getMessage());
+            return response()->json(['message' => 'Error interno al actualizar el trámite.'], 500);
         }
     }
 
@@ -144,7 +147,8 @@ class TramiteRequisitoController extends Controller
             $tramite->delete();
             return response()->json(['message' => 'Trámite eliminado con éxito.'], 200);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Error al eliminar el trámite.', 'error' => $e->getMessage()], 500);
+            \Log::error('Error al eliminar trámite: ' . $e->getMessage());
+            return response()->json(['message' => 'Error interno al eliminar el trámite.'], 500);
         }
     }
 }

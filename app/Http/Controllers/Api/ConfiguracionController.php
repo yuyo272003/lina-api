@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Models\Configuracion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use App\Http\Controllers\Api\SolicitudController;
 
 class ConfiguracionController extends SolicitudController
@@ -37,8 +38,18 @@ class ConfiguracionController extends SolicitudController
             return response()->json(['message' => 'Configuración de cuenta no encontrada.'], 404);
         }
 
+        $valorAnterior = $configuracion->valor;
         $configuracion->valor = $request->input('numero_cuenta');
         $configuracion->save();
+
+        Log::info('Numero de cuenta destino actualizado', [
+            'usuario_id'     => Auth::id(),
+            'usuario_email'  => Auth::user()->email,
+            'valor_anterior' => $valorAnterior,
+            'valor_nuevo'    => $configuracion->valor,
+            'ip'             => request()->ip(),
+            'timestamp'      => now()->toIso8601String(),
+        ]);
 
         return response()->json([
             'message' => 'Número de cuenta GLOBAL actualizado con éxito.',

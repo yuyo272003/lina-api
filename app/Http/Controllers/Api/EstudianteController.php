@@ -109,12 +109,15 @@ class EstudianteController extends SolicitudController
                         $archivo = $request->file("files.{$tramiteData['id']}.{$nombreRequisito}");
 
                         if ($archivo) {
-                            if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
+                            // Validar MIME por contenido real (magic bytes), no por header del cliente
+                            $finfo = new \finfo(FILEINFO_MIME_TYPE);
+                            $realMime = $finfo->file($archivo->getRealPath());
+                            if ($realMime !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
                                 continue;
                             }
 
                             $nombreArchivo = "{$nombreRequisito}_" . time() . '.' . $archivo->extension();
-                            $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'public');
+                            $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'local');
                             $respuestaFinal = $ruta;
                         } else {
                             continue;
@@ -177,7 +180,7 @@ class EstudianteController extends SolicitudController
 
         if ($request->hasFile('comprobante')) {
             $nombreArchivo = 'comprobante_' . $solicitud->id . '_' . time() . '.' . $request->file('comprobante')->extension();
-            $ruta = $request->file('comprobante')->storeAs('comprobantes', $nombreArchivo, 'public');
+            $ruta = $request->file('comprobante')->storeAs('comprobantes', $nombreArchivo, 'local');
 
             $solicitud->ruta_comprobante = $ruta;
 
@@ -305,17 +308,20 @@ class EstudianteController extends SolicitudController
                     $archivo = $request->file("files.{$tramite_id}.{$nombreRequisito}");
 
                     if ($archivo) {
-                        if ($archivo->getClientMimeType() !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
+                        // Validar MIME por contenido real (magic bytes), no por header del cliente
+                        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+                        $realMime = $finfo->file($archivo->getRealPath());
+                        if ($realMime !== 'application/pdf' || $archivo->getSize() > 10 * 1024 * 1024) {
                             continue;
                         }
-                        
+
                         // Limpieza de almacenamiento: Eliminar archivo obsoleto
-                        if ($respuestaExistente->respuesta && Storage::disk('public')->exists($respuestaExistente->respuesta)) {
-                            Storage::disk('public')->delete($respuestaExistente->respuesta);
+                        if ($respuestaExistente->respuesta && Storage::disk('local')->exists($respuestaExistente->respuesta)) {
+                            Storage::disk('local')->delete($respuestaExistente->respuesta);
                         }
 
                         $nombreArchivo = "{$nombreRequisito}_" . time() . '.' . $archivo->extension();
-                        $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'public');
+                        $ruta = $archivo->storeAs("documentos/{$solicitud->idSolicitud}", $nombreArchivo, 'local');
                         
                         $respuestaExistente->respuesta = $ruta;
                         $respuestaExistente->save();
